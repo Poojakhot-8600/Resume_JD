@@ -1,0 +1,155 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  RECRUITER
+}
+
+enum JobStatus {
+  PROCESSING
+  FAILED
+  ACTIVE
+  INACTIVE
+  CLOSED
+}
+
+enum AssessmentStatus {
+  INVITED
+  SHORTLISTED
+  SCHEDULED
+  STARTED
+  COMPLETED
+  EVALUATED
+  EXPIRED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(RECRUITER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  jobs         Job[]    @relation("UserJobs")
+}
+
+model Job {
+  id           BigInt         @id @map("position_id")
+  title        String?        @map("job_title") @db.VarChar(255)
+  jdRawText    String?        @map("jd") @db.VarChar(2000)
+  status       String?        @db.VarChar(20)
+  skills       Json?
+  mustHave     Json?          @map("must_have")
+  goodToHave   Json?          @map("good_to_have")
+  experience   String?
+  seniority    String?
+  topics       Json?
+  weights      Json?
+  mcqs         Json?
+  mcqCount     Int?           @default(0) @map("mcq_count")
+  errorMessage String?        @map("error_message") @db.VarChar(255)
+
+  // Keep our application-specific fields to prevent backend app from breaking:
+  department   String         @default("General")
+  location     String         @default("Remote")
+  createdBy    String
+  creator      User           @relation("UserJobs", fields: [createdBy], references: [id], onDelete: Cascade)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  candidates   Candidate[]
+  questions    QuestionBank[]
+
+  @@map("jobs")
+}
+
+model QuestionBank {
+  id         String   @id @default(uuid())
+  positionId BigInt   @map("position_id")
+  job        Job      @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  question   String   @db.Text
+  topic      String
+  options    Json?    // Array of string options for MCQ
+  answer     String?  @db.Text // Expected answer option text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Candidate {
+  id                String           @id @default(uuid())
+  positionId        BigInt           @map("position_id")
+  candidateId       String?          @map("candidate_id")
+  fname             String           @map("candidate_fname") @db.VarChar(100)
+  lname             String           @map("candidate_lname") @db.VarChar(100)
+  email             String           @map("candidate_email") @db.VarChar(255)
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  // Keep our application-specific fields:
+  phone             String?
+  assessmentStatus  AssessmentStatus? @default(INVITED)
+  assessmentToken   String?           @unique // Secure, unguessable token
+  inviteSentAt      DateTime?         @default(now())
+
+  // Supabase candidate fields:
+  yearsOfExperience Decimal?         @map("years_of_experience") @db.Decimal
+  currentJobTitle   String?          @map("current_job_title") @db.VarChar
+  currentCompany    String?          @map("current_company") @db.VarChar
+  skills            Json?
+  summary           String?
+  resumeText        String?          @map("resume_text")
+  resumeUrl         String?          @map("resume_url")
+
+  // Relations:
+  job               Job              @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  assessments       Assessment[]
+  booking           SlotBooking?
+
+  @@map("candidates")
+}
+
+model Slot {
+  id          String        @id @default(uuid())
+  startTime   DateTime
+  endTime     DateTime
+  capacity    Int
+  bookedCount Int           @default(0)
+  status      String        @default("ACTIVE") // ACTIVE, INACTIVE
+  bookings    SlotBooking[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model SlotBooking {
+  id           String    @id @default(uuid())
+  candidateId  String    @unique
+  candidate    Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  slotId       String
+  slot         Slot      @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  reminderSent Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Assessment {
+  id                  String     @id @default(uuid())
+  candidateId         String     @unique
+  candidate           Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  jobId               BigInt     @map("job_id")
+  questions           Json       // Array of generated questions (copied from QuestionBank on start)
+  assignedQuestionIds String[]   @default([]) // Fixed set of chosen question IDs
+  answers             Json?      // JSON mapping of question ID to candidate answers
+  score               Float?     // Scored points
+  percentage          Float?     // Scored percentage
+  evaluationData      Json?      // Detailed feedback per topic/skill from n8n
+  completedAt         DateTime?
+}

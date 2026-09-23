@@ -1,0 +1,235 @@
+{
+  "name": "My workflow copy",
+  "nodes": [
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "38bfc375-e18a-48c8-9d1b-a18e42be8ec7",
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": "=0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        432,
+        -48
+      ],
+      "id": "391d3b37-a5a0-4b65-b6ad-30a2daae2859",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ea3f4c09-1fa2-4238-84e6-6ede1f71e225",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -336,
+        -48
+      ],
+      "id": "a0deed75-927d-48a5-80d2-dbdbee72fc47",
+      "name": "Webhook",
+      "webhookId": "ea3f4c09-1fa2-4238-84e6-6ede1f71e225"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "jobs",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "position_id",
+              "condition": "eq",
+              "keyValue": "{{$json.Position_ID}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        160,
+        -48
+      ],
+      "id": "71fb057f-c81c-4e45-90e5-22d0c0c86ced",
+      "name": "Get many rows",
+      "credentials": {
+        "supabaseApi": {
+          "id": "4wES7b9yJBQF7EwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "jobs",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "position_id",
+              "fieldValue": "={{ $json.Position_ID }}"
+            },
+            {
+              "fieldId": "job_title",
+              "fieldValue": "={{ $json['Job Title'] }}"
+            },
+            {
+              "fieldId": "jd",
+              "fieldValue": "={{ $json.JD }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        624,
+        32
+      ],
+      "id": "53bba4b9-ab03-4bbf-8c3e-9a4929e07625",
+      "name": "Update a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "4wES7b9yJBQF7EwU",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "jobs",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        -48
+      ],
+      "id": "0cadc0f1-0f0a-4860-a919-3dc0853f5ec9",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        608,
+        -256
+      ],
+      "id": "0f98ae80-ffb0-46f9-81c2-72788546d702",
+      "name": "No Operation, do nothing"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row": {
+      "main": [
+        [
+          {
+            "node": "Get many rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Get many rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Operation, do nothing": {
+      "main": [
+        [
+          {
+            "node": "Get many rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "ed2b0f0b-b062-49e7-b849-071f232a2239",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "5003a3e0602ef60e3917799d650b2d208582ff887753055cabd34d1391ebe19c"
+  },
+  "nodeGroups": [],
+  "id": "KuPxq707BJxtMRxY",
+  "tags": []
+}
