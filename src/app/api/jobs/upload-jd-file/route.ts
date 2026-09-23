@@ -56,12 +56,33 @@ export async function POST(request: Request) {
         }
 
         const buffer = Buffer.from(await file.arrayBuffer());
-        const extracted = await extractTextFromFile(buffer, file.name, file.type);
+        let extracted;
+        try {
+          extracted = await extractTextFromFile(buffer, file.name, file.type);
+        } catch (err: any) {
+          if (file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf') {
+            return NextResponse.json(
+              { error: 'PDF text extraction failed' },
+              { status: 400 }
+            );
+          }
+          throw err;
+        }
 
-        if (!extracted.text || extracted.text.trim().length === 0) {
+        const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+        if (
+          !extracted.text ||
+          extracted.text.trim().length === 0 ||
+          (isPdf &&
+            (extracted.text.startsWith('%PDF-') ||
+              /\b(?:xref|endobj|%%EOF)\b/.test(extracted.text) ||
+              extracted.text.includes('%PDF-')))
+        ) {
           return NextResponse.json(
             {
-              error: `Failed to extract text from file "${file.name}". The document appears to be empty or unreadable.`,
+              error: isPdf
+                ? 'PDF text extraction failed'
+                : `Failed to extract text from file "${file.name}". The document appears to be empty or unreadable.`,
             },
             { status: 400 }
           );
@@ -100,9 +121,24 @@ export async function POST(request: Request) {
           }
           const textVal = item.text.trim();
           const fileName = item.file_name || 'job_description.txt';
+          const fileType = item.file_type || resolveFileType(fileName);
+          const isPdf = fileName.toLowerCase().endsWith('.pdf') || fileType === 'application/pdf';
+
+          if (
+            isPdf &&
+            (textVal.startsWith('%PDF-') ||
+              /\b(?:xref|endobj|%%EOF)\b/.test(textVal) ||
+              textVal.includes('%PDF-'))
+          ) {
+            return NextResponse.json(
+              { error: 'PDF text extraction failed' },
+              { status: 400 }
+            );
+          }
+
           processedJDs.push({
             file_name: fileName,
-            file_type: item.file_type || resolveFileType(fileName),
+            file_type: fileType,
             text: textVal,
             wordCount: textVal.split(/\s+/).filter(Boolean).length,
             charCount: textVal.length,

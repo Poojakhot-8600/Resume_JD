@@ -21,6 +21,7 @@ import {
   FileCheck,
   Send
 } from 'lucide-react';
+import { extractTextFromClientFile, extractPdfTextInBrowser, validateExtractedPdfText } from '@/utils/clientPdfParser';
 
 interface ProcessedResumeItem {
   file_name: string;
@@ -171,15 +172,56 @@ export default function UploadCandidateResumePage() {
     setBatchResult(null);
 
     try {
-      const formData = new FormData();
-      // Append all files in the order they were selected
+      // 1. Extract real readable text from each selected file
+      const resumesPayload: Array<{
+        file_name: string;
+        file_type: string;
+        text: string;
+      }> = [];
+
       for (const file of selectedFiles) {
-        formData.append('files', file);
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        const isPdf = ext === 'pdf' || file.type === 'application/pdf';
+
+        let extracted;
+        try {
+          extracted = await extractTextFromClientFile(file);
+        } catch (extractErr: any) {
+          if (isPdf) {
+            setError('PDF text extraction failed');
+            return;
+          }
+          throw extractErr;
+        }
+
+        const textVal = extracted.text ? extracted.text.trim() : '';
+
+        if (isPdf && !validateExtractedPdfText(textVal)) {
+          setError('PDF text extraction failed');
+          return;
+        }
+
+        if (!textVal) {
+          setError(`File "${file.name}" appears to be empty or unreadable.`);
+          return;
+        }
+
+        resumesPayload.push({
+          file_name: extracted.fileName,
+          file_type: extracted.fileType,
+          text: textVal,
+        });
       }
 
+      // 2. Send ONE batch request with all resumes packaged together
       const res = await fetch('/api/candidates/upload-resume', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          resumes: resumesPayload,
+        }),
       });
 
       const data = await res.json();

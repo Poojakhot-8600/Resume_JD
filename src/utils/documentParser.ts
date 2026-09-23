@@ -26,20 +26,47 @@ export async function extractTextFromFile(
 
   if (ext === 'pdf' || mimeType === 'application/pdf') {
     try {
-      const { PDFParse } = require('pdf-parse');
-      const parser = new PDFParse({ data: new Uint8Array(fileBuffer) });
-      const result = await parser.getText();
-      extractedText = typeof result === 'string' ? result : (result?.text || '');
-    } catch (pdfErr: any) {
-      console.warn('PDFParse failed, falling back to stream extraction:', pdfErr.message);
-      const raw = fileBuffer.toString('latin1');
-      const matches = raw.match(/\(([^)]+)\)\s*Tj/g) || [];
-      if (matches.length > 0) {
-        extractedText = matches.map((m: string) => m.replace(/^\(|\)\s*Tj$/g, '')).join(' ');
-      } else {
-        const printable = raw.replace(/[^\x20-\x7E\r\n\t]/g, ' ');
-        extractedText = printable.replace(/\s{2,}/g, ' ').trim();
+      const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs').catch(() => import('pdfjs-dist'));
+      const loadingTask = pdfjsLib.getDocument({
+        data: new Uint8Array(fileBuffer),
+        useWorkerFetch: false,
+        isEvalSupported: false,
+        useSystemFonts: true,
+      });
+      const doc = await loadingTask.promise;
+      const pageTexts: string[] = [];
+      for (let i = 1; i <= doc.numPages; i++) {
+        const page = await doc.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item: any) => ('str' in item ? item.str : ''))
+          .join(' ');
+        if (pageText.trim()) {
+          pageTexts.push(pageText.trim());
+        }
       }
+      extractedText = pageTexts.join('\n\n').trim();
+    } catch (pdfjsErr: any) {
+      console.warn('pdfjs-dist extraction failed, trying pdf-parse fallback:', pdfjsErr?.message);
+      try {
+        const { PDFParse } = require('pdf-parse');
+        const parser = new PDFParse({ data: new Uint8Array(fileBuffer) });
+        const result = await parser.getText();
+        extractedText = typeof result === 'string' ? result : (result?.text || '');
+      } catch (pdfParseErr: any) {
+        console.error('All PDF extraction libraries failed:', pdfParseErr?.message);
+        throw new Error('PDF text extraction failed');
+      }
+    }
+
+    // Strict validation against raw PDF binary bytes or structural markers
+    if (
+      !extractedText ||
+      extractedText.trim().length === 0 ||
+      extractedText.startsWith('%PDF-') ||
+      /xref|endobj|%%EOF/.test(extractedText)
+    ) {
+      throw new Error('PDF text extraction failed');
     }
   } else if (ext === 'docx' || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
     const result = await mammoth.extractRawText({ buffer: fileBuffer });

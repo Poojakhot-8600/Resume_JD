@@ -22,6 +22,7 @@ import {
   FileCheck,
   Send
 } from 'lucide-react';
+import { extractTextFromClientFile, extractPdfTextInBrowser, validateExtractedPdfText } from '@/utils/clientPdfParser';
 
 interface ProcessedJDItem {
   file_name: string;
@@ -104,6 +105,22 @@ export default function UploadJobDescriptionPage() {
     if (fileArray.length === 0) return;
 
     setSelectedFiles((prev) => [...prev, ...fileArray]);
+
+    // Pre-validate any PDF files eagerly
+    for (const file of fileArray) {
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      if (ext === 'pdf' || file.type === 'application/pdf') {
+        extractPdfTextInBrowser(file)
+          .then((text) => {
+            if (!validateExtractedPdfText(text)) {
+              setError('PDF text extraction failed');
+            }
+          })
+          .catch(() => {
+            setError('PDF text extraction failed');
+          });
+      }
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -172,15 +189,68 @@ export default function UploadJobDescriptionPage() {
     setBatchResult(null);
 
     try {
-      const formData = new FormData();
-      // Append all files in the order they were selected
+      // 1. Extract real readable text from each selected file using client-side extraction
+      const jobDescriptionsPayload: Array<{
+        file_name: string;
+        file_type: string;
+        text: string;
+      }> = [];
+
       for (const file of selectedFiles) {
-        formData.append('files', file);
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        const isPdf = ext === 'pdf' || file.type === 'application/pdf';
+
+        let extracted;
+        try {
+          extracted = await extractTextFromClientFile(file);
+        } catch (extractErr: any) {
+          if (isPdf) {
+            setError('PDF text extraction failed');
+            return;
+          }
+          throw extractErr;
+        }
+
+        const textVal = extracted.text ? extracted.text.trim() : '';
+
+        // Validate PDF extraction before sending the webhook
+        if (isPdf) {
+          if (!validateExtractedPdfText(textVal)) {
+            setError('PDF text extraction failed');
+            return;
+          }
+        }
+
+        if (!textVal) {
+          setError(`File "${file.name}" appears to be empty or unreadable.`);
+          return;
+        }
+
+        jobDescriptionsPayload.push({
+          file_name: extracted.fileName,
+          file_type: extracted.fileType,
+          text: textVal,
+        });
       }
 
+      // Final pre-webhook validation check across all items:
+      for (const jd of jobDescriptionsPayload) {
+        const isPdf = jd.file_type === 'application/pdf' || jd.file_name.toLowerCase().endsWith('.pdf');
+        if (isPdf && !validateExtractedPdfText(jd.text)) {
+          setError('PDF text extraction failed');
+          return;
+        }
+      }
+
+      // 2. Send ONE batch request with all JDs packaged together
       const res = await fetch('/api/jobs/upload-jd-file', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          job_descriptions: jobDescriptionsPayload,
+        }),
       });
 
       const data = await res.json();
