@@ -94,7 +94,7 @@ export async function POST(request: Request) {
     }
 
     // 5. Transaction: Increment bookedCount, create booking and update candidate status
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: any) => {
       // Re-verify bookedCount under lock
       const lockedSlot = await tx.slot.findUnique({
         where: { id: slotId },
