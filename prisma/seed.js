@@ -26,7 +26,7 @@ async function main() {
   }
 
   // 2. Seed Recruiter Admin User (admin@gmail.com)
-  const passwordHash = await bcrypt.hash('123123123', 10);
+  const passwordHash = await bcrypt.hash('admin123', 10);
   const adminUser = await prisma.user.create({
     data: {
       id: 'seeded-admin-user-id',

@@ -245,4 +245,4 @@ npm run dev
 - Open [http://localhost:3000](http://localhost:3000)
 - Sign in with pre-seeded credentials:
   - **Email**: `admin@gmail.com`
-  - **Password**: `123123123`
+  - **Password**: `admin123`

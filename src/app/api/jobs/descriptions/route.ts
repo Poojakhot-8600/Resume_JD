@@ -13,21 +13,22 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search')?.toLowerCase() || '';
 
-    // Query job_descriptions joined with candidate counts from jd_matches
+    // Query job_descriptions joined with candidate counts from output table
     const res = await pool.query(`
       SELECT 
         jd.content_hash as "contentHash",
-        jd.job_code as "jobCode",
-        jd.job_title as "jobTitle",
-        jd.jd_text as "jdText",
+        COALESCE(jd.job_code, 'N/A') as "jobCode",
+        COALESCE(jd.job_title, 'Untitled Job') as "jobTitle",
+        COALESCE(jd.jd_text, '') as "jdText",
         jd.created_at as "createdAt",
         COALESCE(m.candidates_count, 0)::int as "candidatesCount"
       FROM job_descriptions jd
       LEFT JOIN (
-        SELECT job_code, COUNT(DISTINCT candidate_id) as candidates_count
-        FROM jd_matches
-        GROUP BY job_code
-      ) m ON m.job_code = jd.job_code
+        SELECT TRIM(job_code) as job_code, COUNT(DISTINCT candidate_id) as candidates_count
+        FROM output
+        WHERE job_code IS NOT NULL
+        GROUP BY TRIM(job_code)
+      ) m ON TRIM(m.job_code) = TRIM(jd.job_code)
       ORDER BY jd.created_at DESC;
     `);
 
@@ -41,37 +42,84 @@ export async function GET(request: Request) {
       );
     }
 
-    // Fetch matched candidates summary for each job
+    // Fetch matched candidates summary joined with candidate profiles from candidates table
     const candidatesRes = await pool.query(`
       SELECT 
-        job_code as "jobCode",
-        candidate_name as "candidateName",
-        candidate_email as "candidateEmail",
-        ROUND(score::numeric, 1)::float as "score",
-        match_status as "matchStatus",
-        created_at as "createdAt"
-      FROM jd_matches
-      ORDER BY score DESC;
+        o.id,
+        o.resume_id as "resumeId",
+        o.candidate_id as "candidateId",
+        COALESCE(o.candidate_name, 'Unknown') as "candidateName",
+        COALESCE(o.candidate_email, 'No Email') as "candidateEmail",
+        TRIM(o.job_code) as "jobCode",
+        o.job_title as "jobTitle",
+        o.job_seniority as "jobSeniority",
+        COALESCE(o.match_percent, 0)::float as "score",
+        o.match_percent as "match_percent",
+        o.band,
+        o.coverage_matched as "coverage_matched",
+        o.coverage_total as "coverage_total",
+        o.coverage_percent as "coverage_percent",
+        o.coverage_text as "coverage_text",
+        o.score_skills as "score_skills",
+        o.score_experience as "score_experience",
+        o.score_responsibilities as "score_responsibilities",
+        o.score_domain as "score_domain",
+        o.score_seniority as "score_seniority",
+        o.score_education as "score_education",
+        o.dimension_scores as "dimension_scores",
+        o.dimension_contributions as "dimension_contributions",
+        o.matched_skills as "matched_skills",
+        o.gap_skills as "gap_skills",
+        o.knockout_status as "knockout_status",
+        o.knockout_flags as "knockout_flags",
+        o.data_confidence as "data_confidence",
+        o.recommended_next_step as "recommended_next_step",
+        o.explanation,
+        o.created_at as "createdAt",
+        COALESCE(o.band, o.recommended_next_step, 'MATCHED') as "matchStatus",
+        c.phone,
+        c.current_job_title as "current_job_title",
+        c.current_company as "current_company",
+        c.years_of_experience as "years_of_experience",
+        c.seniority as "candidate_seniority",
+        COALESCE(c.candidate_location, c.candidate_address) as "location"
+      FROM output o
+      LEFT JOIN candidates c ON TRIM(c.candidate_id) = TRIM(o.candidate_id)
+      ORDER BY o.match_percent DESC NULLS LAST;
     `);
+
+    // Fetch total distinct matched candidates across all jobs in output
+    const totalCandidatesRes = await pool.query(`
+      SELECT COUNT(DISTINCT candidate_id) as count
+      FROM output;
+    `).catch(() => ({ rows: [{ count: '0' }] }));
+    const totalMatchedCandidates = parseInt(totalCandidatesRes.rows[0]?.count || '0', 10);
 
     const candidatesByJob: Record<string, any[]> = {};
     candidatesRes.rows.forEach((c) => {
-      if (c.jobCode) {
-        if (!candidatesByJob[c.jobCode]) {
-          candidatesByJob[c.jobCode] = [];
+      const code = c.jobCode ? c.jobCode.trim() : '';
+      if (code) {
+        if (!candidatesByJob[code]) {
+          candidatesByJob[code] = [];
         }
-        candidatesByJob[c.jobCode].push(c);
+        candidatesByJob[code].push(c);
       }
     });
 
-    const enrichedDescriptions = jobDescriptions.map((jd) => ({
-      ...jd,
-      matchedCandidates: jd.jobCode ? (candidatesByJob[jd.jobCode] || []) : [],
-    }));
+    const enrichedDescriptions = jobDescriptions.map((jd) => {
+      const code = jd.jobCode ? jd.jobCode.trim() : '';
+      const matched = code ? (candidatesByJob[code] || []) : [];
+      return {
+        ...jd,
+        candidatesCount: jd.candidatesCount || matched.length,
+        matchedCandidates: matched,
+      };
+    });
 
     return NextResponse.json({
       success: true,
       jobDescriptions: enrichedDescriptions,
+      totalMatchedCandidates,
     });
   } catch (error: any) {
     console.error('Error fetching job_descriptions:', error);

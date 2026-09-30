@@ -85,6 +85,35 @@ export default function CandidateAssessmentPortal() {
     if (token) validateToken();
   }, [token, router]);
 
+  // Submit assessment logic
+  const submitAnswers = async () => {
+    setIsSubmitConfirmOpen(false);
+    setPortalState('submitting');
+
+    try {
+      const res = await fetch('/api/assessment/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, answers }),
+      });
+
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || 'Submission failed');
+      }
+
+      setPortalState('success');
+    } catch (err: any) {
+      alert(err.message || 'Error submitting assessment response. Please try again.');
+      setPortalState('playing');
+    }
+  };
+
+  const handleAutoSubmit = () => {
+    console.log('[Timer Exhausted] Auto-submitting answers...');
+    submitAnswers();
+  };
+
   // Timer countdown hook
   React.useEffect(() => {
     if (portalState !== 'playing') return;
@@ -133,35 +162,6 @@ export default function CandidateAssessmentPortal() {
   // Handle Answer Changes
   const handleAnswerChange = (qId: string, text: string) => {
     setAnswers((prev) => ({ ...prev, [qId]: text }));
-  };
-
-  // Submit assessment logic
-  const submitAnswers = async () => {
-    setIsSubmitConfirmOpen(false);
-    setPortalState('submitting');
-
-    try {
-      const res = await fetch('/api/assessment/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, answers }),
-      });
-
-      if (!res.ok) {
-        const json = await res.json();
-        throw new Error(json.error || 'Submission failed');
-      }
-
-      setPortalState('success');
-    } catch (err: any) {
-      alert(err.message || 'Error submitting assessment response. Please try again.');
-      setPortalState('playing');
-    }
-  };
-
-  const handleAutoSubmit = () => {
-    console.log('[Timer Exhausted] Auto-submitting answers...');
-    submitAnswers();
   };
 
   // Calculations

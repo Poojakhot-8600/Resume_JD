@@ -122,7 +122,7 @@ export async function POST(request: Request) {
 
       const email = c.Candidate_EMAIL || c.candidateEmail || c.Email || c.email;
       const phone = c.Phone || c.phone || c['Phone Number'] || null;
-      let jobId = c.Position_ID || c.jobId || c.JobId || defaultJobId;
+      const jobId = c.Position_ID || c.jobId || c.JobId || defaultJobId;
 
       // Resolve job title to ID if title is provided
       const jobTitle = c['Job Title'] || c.jobTitle || c.JobTitle;

@@ -19,12 +19,14 @@ const loginSchema = z.object({
 type LoginValues = z.infer<typeof loginSchema>;
 
 async function readJsonResponse(res: Response) {
-  const contentType = res.headers.get('content-type') || '';
-
-  if (contentType.includes('application/json')) {
-    return res.json();
+  try {
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return await res.json();
+    }
+  } catch {
+    // ignore parse error
   }
-
   return {};
 }
 
@@ -57,7 +59,13 @@ export default function LoginPage() {
       const data = await readJsonResponse(res);
 
       if (!res.ok) {
-        setErrorAlert(data.error || 'Invalid email or password.');
+        if (data.error) {
+          setErrorAlert(data.error);
+        } else if (res.status === 400 || res.status === 401) {
+          setErrorAlert('Invalid email or password.');
+        } else {
+          setErrorAlert(`Server error (${res.status}). Please try again shortly.`);
+        }
         setLoading(false);
         return;
       }

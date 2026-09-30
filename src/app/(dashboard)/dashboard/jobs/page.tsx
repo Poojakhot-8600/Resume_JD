@@ -29,12 +29,14 @@ import {
 } from 'lucide-react';
 
 import { JobItem, JobDescriptionItem, MatchedCandidate } from '@/types';
+import { CandidateScorecardModal } from '@/components/dashboard/candidate-scorecard-modal';
 
 export default function JobsPage() {
   const [activeTab, setActiveTab] = React.useState<'descriptions' | 'assessmentJobs'>('descriptions');
   
   // Job Descriptions (Supabase job_descriptions table)
   const [jobDescriptions, setJobDescriptions] = React.useState<JobDescriptionItem[]>([]);
+  const [totalMatchedCandidates, setTotalMatchedCandidates] = React.useState<number>(0);
   const [isLoadingDescriptions, setIsLoadingDescriptions] = React.useState(true);
   
   // Assessment Jobs (jobs table)
@@ -44,6 +46,7 @@ export default function JobsPage() {
   // Selected JD for detail view modal
   const [selectedJD, setSelectedJD] = React.useState<JobDescriptionItem | null>(null);
   const [selectedCandidateJob, setSelectedCandidateJob] = React.useState<JobDescriptionItem | null>(null);
+  const [selectedScorecardCandidate, setSelectedScorecardCandidate] = React.useState<MatchedCandidate | null>(null);
   const [copied, setCopied] = React.useState(false);
 
   // Fetch Supabase job_descriptions
@@ -58,6 +61,9 @@ export default function JobsPage() {
       const data = await res.json();
       if (data.jobDescriptions) {
         setJobDescriptions(data.jobDescriptions);
+      }
+      if (typeof data.totalMatchedCandidates === 'number') {
+        setTotalMatchedCandidates(data.totalMatchedCandidates);
       }
     } catch (error) {
       console.error('Error fetching job_descriptions:', error);
@@ -179,7 +185,7 @@ export default function JobsPage() {
             {jd.jobTitle || 'Untitled Role'}
           </div>
           <div className="text-[10px] text-neutral-500 font-mono truncate">
-            hash: {jd.contentHash.substring(0, 8)}...
+            hash: {jd.contentHash ? `${jd.contentHash.substring(0, 8)}...` : 'N/A'}
           </div>
         </div>
       ),
@@ -190,16 +196,18 @@ export default function JobsPage() {
       cell: (jd: JobDescriptionItem) => (
         <div className="max-w-md">
           <p className="text-xs text-neutral-600 line-clamp-2 leading-relaxed">
-            {jd.jdText}
+            {jd.jdText || 'No description text provided.'}
           </p>
-          <button
-            type="button"
-            onClick={() => setSelectedJD(jd)}
-            className="mt-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 cursor-pointer"
-          >
-            <FileText className="h-3 w-3" />
-            Read Full Description
-          </button>
+          {jd.jdText && (
+            <button
+              type="button"
+              onClick={() => setSelectedJD(jd)}
+              className="mt-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <FileText className="h-3 w-3" />
+              Read Full Description
+            </button>
+          )}
         </div>
       ),
     },
@@ -432,8 +440,10 @@ export default function JobsPage() {
             <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Matched Candidates</span>
             <Users className="h-4 w-4 text-emerald-600" />
           </div>
-          <p className="mt-2 text-2xl font-black text-emerald-700">{totalCandidatesAcrossJDs}</p>
-          <span className="text-[11px] text-neutral-400">table: jd_matches</span>
+          <p className="mt-2 text-2xl font-black text-emerald-700">
+            {totalMatchedCandidates > 0 ? totalMatchedCandidates : totalCandidatesAcrossJDs}
+          </p>
+          <span className="text-[11px] text-neutral-400">table: output</span>
         </div>
         <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-xs">
           <div className="flex items-center justify-between">
@@ -676,38 +686,61 @@ export default function JobsPage() {
             <div className="flex-1 overflow-y-auto space-y-2">
               {!selectedCandidateJob.matchedCandidates || selectedCandidateJob.matchedCandidates.length === 0 ? (
                 <div className="py-12 text-center text-xs text-neutral-400">
-                  No candidate match scores recorded for this job code in <code className="font-mono">jd_matches</code>.
+                  No candidate match scores recorded for this job code in <code className="font-mono">output</code>.
                 </div>
               ) : (
                 selectedCandidateJob.matchedCandidates.map((c, i) => (
                   <div
                     key={i}
-                    className="p-3 bg-neutral-50 hover:bg-neutral-100/80 rounded-xl border border-neutral-200 flex items-center justify-between gap-3 transition-colors"
+                    onClick={() => setSelectedScorecardCandidate(c)}
+                    className="p-3 bg-neutral-50 hover:bg-neutral-100/90 rounded-xl border border-neutral-200 hover:border-indigo-300 flex items-center justify-between gap-3 transition-all cursor-pointer group shadow-2xs"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="h-9 w-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
                         {c.candidateName.charAt(0)}
                       </div>
-                      <div>
-                        <p className="text-xs font-bold text-neutral-900">{c.candidateName}</p>
-                        <p className="text-[11px] text-neutral-500 font-mono">{c.candidateEmail}</p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-bold text-neutral-900 group-hover:text-indigo-600 transition-colors truncate">
+                            {c.candidateName}
+                          </p>
+                          {(c.candidateId || c.candidate_id) && (
+                            <span className="text-[10px] font-mono text-neutral-400 shrink-0">
+                              ID: {c.candidateId || c.candidate_id}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-neutral-500 font-mono truncate">{c.candidateEmail}</p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2.5 shrink-0">
                       <div className="text-right">
                         <span className="text-xs font-black text-neutral-900">{c.score}%</span>
                         <p className="text-[10px] text-neutral-400">match score</p>
                       </div>
                       <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
-                        c.matchStatus === 'SELECTED'
+                        (c.band || '').toLowerCase().includes('strong') || c.matchStatus === 'SELECTED'
                           ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                          : c.matchStatus === 'REVIEW'
+                          : (c.band || '').toLowerCase().includes('partial') || c.matchStatus === 'REVIEW'
                           ? 'bg-amber-100 text-amber-800 border-amber-300'
+                          : (c.knockout_status || '').toUpperCase() === 'BLOCKED'
+                          ? 'bg-red-100 text-red-800 border-red-300'
                           : 'bg-neutral-100 text-neutral-700 border-neutral-300'
                       }`}>
-                        {c.matchStatus || 'MATCHED'}
+                        {c.band || c.matchStatus || 'MATCHED'}
                       </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs h-7 px-2.5 bg-white text-indigo-700 border-indigo-200 group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600 transition-colors cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedScorecardCandidate(c);
+                        }}
+                      >
+                        Scorecard →
+                      </Button>
                     </div>
                   </div>
                 ))
@@ -725,6 +758,16 @@ export default function JobsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Candidate Scorecard View Modal */}
+      {selectedScorecardCandidate && (
+        <CandidateScorecardModal
+          isOpen={!!selectedScorecardCandidate}
+          candidate={selectedScorecardCandidate}
+          onClose={() => setSelectedScorecardCandidate(null)}
+          onBackToJob={() => setSelectedScorecardCandidate(null)}
+        />
       )}
     </div>
   );
