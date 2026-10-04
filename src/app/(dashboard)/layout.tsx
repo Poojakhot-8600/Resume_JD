@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/utils/auth';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { Navbar } from '@/components/dashboard/navbar';
 
-
+export const dynamic = 'force-dynamic';
 
 export default async function DashboardLayout({
   children,
