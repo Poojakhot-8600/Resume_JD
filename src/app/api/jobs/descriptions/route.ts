@@ -21,6 +21,8 @@ export async function GET(request: Request) {
         COALESCE(jd.job_title, 'Untitled Job') as "jobTitle",
         COALESCE(jd.jd_text, '') as "jdText",
         jd.created_at as "createdAt",
+        COALESCE(jd.status, 'Active') as "status",
+        jd.inactive_at as "inactiveAt",
         COALESCE(m.candidates_count, 0)::int as "candidatesCount"
       FROM job_descriptions jd
       LEFT JOIN (

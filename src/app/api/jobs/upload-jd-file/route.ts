@@ -4,9 +4,12 @@ import { getCurrentUser } from '@/utils/auth';
 import { extractTextFromFile, isSupportedFormat, resolveFileType } from '@/utils/documentParser';
 
 interface JobDescriptionPayloadItem {
+  position_id?: string | null;
+  job_title?: string;
+  description?: string;
   file_name: string;
   file_type: string;
-  text: string;
+  text?: string;
   wordCount?: number;
   charCount?: number;
 }
@@ -113,13 +116,19 @@ export async function POST(request: Request) {
 
       if (Array.isArray(body.job_descriptions) && body.job_descriptions.length > 0) {
         for (const item of body.job_descriptions) {
-          if (!item.text || typeof item.text !== 'string' || item.text.trim().length === 0) {
+          const hasText = item.text && typeof item.text === 'string' && item.text.trim().length > 0;
+          const hasDesc = item.description && typeof item.description === 'string' && item.description.trim().length > 0;
+
+          if (!hasText && !hasDesc) {
             return NextResponse.json(
-              { error: `Item "${item.file_name || 'unnamed'}" does not contain valid text.` },
+              { error: `Item "${item.file_name || 'unnamed'}" does not contain valid text or description.` },
               { status: 400 }
             );
           }
-          const textVal = item.text.trim();
+          
+          const textVal = hasText ? item.text.trim() : '';
+          const descVal = hasDesc ? item.description.trim() : '';
+          
           const fileName = item.file_name || 'job_description.txt';
           const fileType = item.file_type || resolveFileType(fileName);
           const isPdf = fileName.toLowerCase().endsWith('.pdf') || fileType === 'application/pdf';
@@ -136,12 +145,18 @@ export async function POST(request: Request) {
             );
           }
 
+          const fallbackWordCount = hasText ? textVal.split(/\s+/).filter(Boolean).length : descVal.split(/\s+/).filter(Boolean).length;
+          const fallbackCharCount = hasText ? textVal.length : descVal.length;
+
           processedJDs.push({
+            position_id: item.position_id,
+            job_title: item.job_title,
+            description: item.description,
             file_name: fileName,
             file_type: fileType,
-            text: textVal,
-            wordCount: textVal.split(/\s+/).filter(Boolean).length,
-            charCount: textVal.length,
+            text: textVal || undefined,
+            wordCount: fallbackWordCount,
+            charCount: fallbackCharCount,
           });
         }
       } else if (body.text && typeof body.text === 'string' && body.text.trim().length > 0) {
@@ -174,18 +189,18 @@ export async function POST(request: Request) {
       );
     }
 
-    // Required Job Description Webhook Payload structure:
-    // {
-    //   "job_descriptions": [
-    //     { "file_name": "...", "file_type": "...", "text": "..." }
-    //   ]
-    // }
     const webhookPayload = {
-      job_descriptions: processedJDs.map((j) => ({
-        file_name: j.file_name,
-        file_type: j.file_type,
-        text: j.text,
-      })),
+      job_descriptions: processedJDs.map((j) => {
+        const payloadItem: any = {
+          file_name: j.file_name,
+          file_type: j.file_type,
+        };
+        if (j.text !== undefined) payloadItem.text = j.text;
+        if (j.position_id !== undefined) payloadItem.position_id = j.position_id;
+        if (j.job_title !== undefined) payloadItem.job_title = j.job_title;
+        if (j.description !== undefined) payloadItem.description = j.description;
+        return payloadItem;
+      }),
     };
 
     // Determine target webhook URL for Job Description

@@ -25,9 +25,12 @@ import {
 import { extractTextFromClientFile, extractPdfTextInBrowser, validateExtractedPdfText } from '@/utils/clientPdfParser';
 
 interface ProcessedJDItem {
+  position_id?: string | null;
+  job_title?: string;
+  description?: string;
   file_name: string;
   file_type: string;
-  text: string;
+  text?: string; // Optional for Excel now, keeping it for generic/pdf text
   wordCount: number;
   charCount: number;
 }
@@ -38,9 +41,12 @@ interface BatchJDResult {
   job_descriptions: ProcessedJDItem[];
   webhookPayload: {
     job_descriptions: Array<{
+      position_id?: string | null;
+      job_title?: string;
+      description?: string;
       file_name: string;
       file_type: string;
-      text: string;
+      text?: string;
     }>;
   };
   webhookSuccess: boolean;
@@ -48,6 +54,8 @@ interface BatchJDResult {
   webhookMessage: string;
   webhookUrl: string;
   webhookResponse?: any;
+  skippedPosIdCount?: number;
+  skippedJdCount?: number;
 }
 
 export default function UploadJobDescriptionPage() {
@@ -59,6 +67,7 @@ export default function UploadJobDescriptionPage() {
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [batchResult, setBatchResult] = useState<BatchJDResult | null>(null);
+  const [batchSummary, setBatchSummary] = useState<string | null>(null);
   const [manualText, setManualText] = useState('');
   const [manualTitle, setManualTitle] = useState('');
   const [showManualInput, setShowManualInput] = useState(false);
@@ -187,19 +196,124 @@ export default function UploadJobDescriptionPage() {
     setError(null);
     setIsProcessing(true);
     setBatchResult(null);
+    setBatchSummary(null);
 
     try {
       // 1. Extract real readable text from each selected file using client-side extraction
       const jobDescriptionsPayload: Array<{
+        position_id?: string | null;
+        job_title?: string;
+        description?: string;
         file_name: string;
         file_type: string;
-        text: string;
+        text?: string;
       }> = [];
+
+      let totalSkippedPosIdCount = 0;
+      let totalSkippedJdCount = 0;
 
       for (const file of selectedFiles) {
         const ext = file.name.split('.').pop()?.toLowerCase() || '';
         const isPdf = ext === 'pdf' || file.type === 'application/pdf';
+        const isExcelOrCsv = ['xlsx', 'xls', 'csv'].includes(ext);
 
+        if (isExcelOrCsv) {
+          try {
+            const XLSX = await import('xlsx');
+            const arrayBuffer = await file.arrayBuffer();
+            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            const sheet = workbook.Sheets[sheetName];
+            
+            // 1. Use sheet_to_json with header: 1
+            const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+
+            if (rows.length === 0) {
+              setError(`File "${file.name}" has no data rows.`);
+              return;
+            }
+
+            // 2. Detect header row
+            let idCol = 0, titleCol = 1, descCol = 2;
+            let hasHeader = false;
+            
+            const firstRow = rows[0].map((cell: any) => String(cell).toLowerCase().replace(/[\s_]+/g, ''));
+            const idMatch = firstRow.findIndex((c: string) => /id|code/i.test(c));
+            const titleMatch = firstRow.findIndex((c: string) => /title|role|positionname/i.test(c));
+            const descMatch = firstRow.findIndex((c: string) => /description|jd/i.test(c));
+            
+            if (idMatch !== -1 && titleMatch !== -1 && descMatch !== -1) {
+              hasHeader = true;
+              idCol = idMatch;
+              titleCol = titleMatch;
+              descCol = descMatch;
+            }
+
+            const dataRows = hasHeader ? rows.slice(1) : rows;
+            let readCount = 0;
+            let skippedMissingDesc = 0;
+
+            const validRows: any[] = [];
+            for (const row of dataRows) {
+              if (!row || row.length === 0) continue;
+              readCount++;
+              
+              const posId = row[idCol] ? String(row[idCol]).trim() : null;
+              const jobTitle = row[titleCol] ? String(row[titleCol]).trim() : '';
+              const jdText = row[descCol] ? String(row[descCol]).trim() : '';
+
+              if (!jdText) {
+                skippedMissingDesc++;
+                continue;
+              }
+
+              validRows.push({ posId, jobTitle, jdText });
+            }
+
+            let duplicatesRemoved = 0;
+            let uniqueCount = 0;
+            const seenPosIds = new Set<string>();
+            const seenTexts = new Set<string>();
+
+            // Deduplicate within the current upload batch
+            for (const r of validRows) {
+              const isDuplicate = 
+                (r.posId && seenPosIds.has(r.posId)) || 
+                seenTexts.has(r.jdText);
+
+              if (isDuplicate) {
+                duplicatesRemoved++;
+                continue;
+              }
+
+              if (r.posId) seenPosIds.add(r.posId);
+              seenTexts.add(r.jdText);
+              uniqueCount++;
+
+              jobDescriptionsPayload.push({
+                position_id: r.posId,
+                job_title: r.jobTitle,
+                description: r.jdText,
+                file_name: file.name,
+                file_type: 'xlsx'
+              });
+            }
+
+            // We'll show the summary as a success message or attach it to the result later
+            // The prompt says: show the user a summary: "N rows read, N unique, N missing ID, N duplicates removed".
+            if (readCount > 0) {
+              const missingIdCount = readCount - uniqueCount - duplicatesRemoved; // Wait, actually it's just how many have missing ID
+              const missingId = validRows.filter(r => !r.posId).length;
+              setBatchSummary(prev => prev ? prev + `\n${file.name}: ${readCount} rows read, ${uniqueCount} unique, ${missingId} missing ID, ${duplicatesRemoved} duplicates removed.` : `${file.name}: ${readCount} rows read, ${uniqueCount} unique, ${missingId} missing ID, ${duplicatesRemoved} duplicates removed.`);
+            }
+
+            continue;
+          } catch (xlsxErr) {
+            console.warn('xlsx parse failed, falling back to text extraction:', xlsxErr);
+          }
+        }
+
+        // ── Generic extraction (PDF, DOCX, plain text, non-JD CSVs) ──
         let extracted;
         try {
           extracted = await extractTextFromClientFile(file);
@@ -226,7 +340,17 @@ export default function UploadJobDescriptionPage() {
           return;
         }
 
+        let extractedPosId: string | null = null;
+        if (isPdf || ['txt', 'doc', 'docx'].includes(ext)) {
+          // Look for "Position ID: XXX" or "Job ID: XXX" etc.
+          const match = textVal.match(/(?:position id|job id|job code|requisition id)\s*[:\-]?\s*([a-zA-Z0-9\-_]+)/i);
+          if (match && match[1]) {
+            extractedPosId = match[1].trim();
+          }
+        }
+
         jobDescriptionsPayload.push({
+          position_id: extractedPosId,
           file_name: extracted.fileName,
           file_type: extracted.fileType,
           text: textVal,
@@ -243,6 +367,16 @@ export default function UploadJobDescriptionPage() {
       }
 
       // 2. Send ONE batch request with all JDs packaged together
+      if (jobDescriptionsPayload.length === 0) {
+        if (totalSkippedPosIdCount > 0 || totalSkippedJdCount > 0) {
+           setError(`All rows were skipped as duplicates (${totalSkippedPosIdCount} by Position_ID, ${totalSkippedJdCount} by JD).`);
+        } else {
+           setError('No valid data found to upload.');
+        }
+        setIsProcessing(false);
+        return;
+      }
+
       const res = await fetch('/api/jobs/upload-jd-file', {
         method: 'POST',
         headers: {
@@ -259,7 +393,11 @@ export default function UploadJobDescriptionPage() {
         throw new Error(data.error || 'Failed to process and upload job descriptions.');
       }
 
-      setBatchResult(data);
+      setBatchResult({
+        ...data,
+        skippedPosIdCount: totalSkippedPosIdCount,
+        skippedJdCount: totalSkippedJdCount,
+      });
     } catch (err: any) {
       console.error('Batch JD upload error:', err);
       setError(err.message || 'An error occurred while uploading job descriptions.');
@@ -267,6 +405,7 @@ export default function UploadJobDescriptionPage() {
       setIsProcessing(false);
     }
   };
+
 
   const handleCopyPayload = () => {
     if (!batchResult?.webhookPayload) return;
@@ -296,7 +435,7 @@ export default function UploadJobDescriptionPage() {
             </span>
           </div>
           <p className="mt-1.5 text-sm text-neutral-500">
-            Select 1 or multiple job descriptions (.pdf, .docx, .doc, .txt, or .csv). All files are processed and delivered together in <strong>ONE webhook request</strong> under the <code className="bg-neutral-100 px-1 py-0.5 rounded font-mono text-neutral-800 font-semibold">{`"job_descriptions": [...]`}</code> array.
+            Select 1 or multiple job descriptions (.pdf, .docx, .doc, .txt, .csv, or .xlsx). All files are processed and delivered together in <strong>ONE webhook request</strong> under the <code className="bg-neutral-100 px-1 py-0.5 rounded font-mono text-neutral-800 font-semibold">{`"job_descriptions": [...]`}</code> array.
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex items-center gap-2">
@@ -369,7 +508,7 @@ export default function UploadJobDescriptionPage() {
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".pdf,.doc,.docx,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/csv"
+            accept=".pdf,.doc,.docx,.txt,.csv,.xlsx,.xls,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
             onChange={handleFileChange}
             className="hidden"
           />
@@ -382,11 +521,11 @@ export default function UploadJobDescriptionPage() {
             Drop job description file(s) here, or <span className="text-indigo-600 underline">browse</span>
           </h3>
           <p className="text-xs text-neutral-500 mt-1.5 max-w-md mx-auto">
-            Select 1, 3, 5, or more JDs. Supports <span className="font-semibold text-neutral-700">.pdf, .docx, .doc, .csv, .txt</span>. All files will be sent together in ONE request.
+            Select 1, 3, 5, or more JDs. Supports <span className="font-semibold text-neutral-700">.pdf, .docx, .doc, .csv, .xlsx, .txt</span>. All files will be sent together in ONE request.
           </p>
 
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-            {['PDF (.pdf)', 'Word (.docx, .doc)', 'CSV (.csv)', 'Text (.txt)'].map((fmt) => (
+            {['PDF (.pdf)', 'Word (.docx, .doc)', 'Excel (.xlsx, .csv)', 'Text (.txt)'].map((fmt) => (
               <span
                 key={fmt}
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium bg-neutral-100 text-neutral-600"
@@ -568,7 +707,17 @@ export default function UploadJobDescriptionPage() {
                   </h3>
                   <p className="text-xs text-neutral-500 mt-0.5">
                     {batchResult.count} job description{batchResult.count === 1 ? '' : 's'} extracted and delivered in <strong>ONE webhook request</strong>.
+                    {batchResult.webhookResponse?.total_jds !== undefined && (
+                      <span className="ml-2 font-semibold text-indigo-600">
+                        Total JDs according to webhook: {batchResult.webhookResponse.total_jds}
+                      </span>
+                    )}
                   </p>
+                  {batchSummary && (
+                    <p className="text-xs text-amber-600 font-medium mt-1 whitespace-pre-wrap">
+                      {batchSummary}
+                    </p>
+                  )}
                 </div>
               </div>
 

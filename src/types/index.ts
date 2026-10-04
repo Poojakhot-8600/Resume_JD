@@ -57,6 +57,9 @@ export interface CandidateItem {
   assessments: {
     score: number | null;
   }[];
+  createdAt?: string;
+  status?: string;
+  inactiveAt?: string | null;
 }
 
 export interface Job {
@@ -163,6 +166,8 @@ export interface JobDescriptionItem {
   jobTitle: string;
   jdText: string;
   createdAt: string;
+  status?: string;
+  inactiveAt?: string | null;
   candidatesCount: number;
   matchedCandidates?: MatchedCandidate[];
 }

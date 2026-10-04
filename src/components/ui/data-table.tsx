@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table';
 import { Button } from './button';
-import { Search, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 
 export interface ColumnDef<T> {
   header: string;
@@ -69,7 +69,17 @@ export function DataTable<T>({
         if (aVal === undefined || aVal === null) return 1;
         if (bVal === undefined || bVal === null) return -1;
 
+        if (typeof aVal === 'number' && typeof bVal === 'number') {
+          return sortConfig.direction === 'asc' ? aVal - bVal : bVal - aVal;
+        }
+
         if (typeof aVal === 'string' && typeof bVal === 'string') {
+          // Check for dates (rudimentary check to avoid parsing simple numbers as dates)
+          const dateA = Date.parse(aVal);
+          const dateB = Date.parse(bVal);
+          if (!isNaN(dateA) && !isNaN(dateB) && isNaN(Number(aVal))) {
+            return sortConfig.direction === 'asc' ? dateA - dateB : dateB - dateA;
+          }
           return sortConfig.direction === 'asc'
             ? aVal.localeCompare(bVal)
             : bVal.localeCompare(aVal);
@@ -125,7 +135,15 @@ export function DataTable<T>({
                         className="inline-flex items-center gap-1 hover:text-neutral-900 cursor-pointer font-semibold text-left focus:outline-none"
                       >
                         <span>{col.header}</span>
-                        <ArrowUpDown className="h-3 w-3 text-neutral-400" />
+                        {sortConfig?.key === col.accessorKey!.toString() ? (
+                          sortConfig.direction === 'asc' ? (
+                            <ArrowUp className="h-3 w-3 text-neutral-900" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3 text-neutral-900" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 text-neutral-400" />
+                        )}
                       </button>
                     ) : (
                       <span>{col.header}</span>

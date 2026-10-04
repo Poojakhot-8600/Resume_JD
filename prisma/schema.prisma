@@ -114,6 +114,10 @@ model Candidate {
   assessments       Assessment[]
   booking           SlotBooking?
 
+  // Custom Status
+  status            String?          @default("Active")
+  inactiveAt        DateTime?        @map("inactive_at")
+
   @@map("candidates")
 }
 

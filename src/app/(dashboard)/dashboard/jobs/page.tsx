@@ -31,17 +31,25 @@ import {
 import { JobItem, JobDescriptionItem, MatchedCandidate } from '@/types';
 import { CandidateScorecardModal } from '@/components/dashboard/candidate-scorecard-modal';
 
+// Module-level cache — survives client-side navigations within the session
+let _cachedJobDescriptions: JobDescriptionItem[] | null = null;
+let _cachedJobs: JobItem[] | null = null;
+let _cachedTotalMatchedCandidates = 0;
+
 export default function JobsPage() {
   const [activeTab, setActiveTab] = React.useState<'descriptions' | 'assessmentJobs'>('descriptions');
   
   // Job Descriptions (Supabase job_descriptions table)
-  const [jobDescriptions, setJobDescriptions] = React.useState<JobDescriptionItem[]>([]);
-  const [totalMatchedCandidates, setTotalMatchedCandidates] = React.useState<number>(0);
-  const [isLoadingDescriptions, setIsLoadingDescriptions] = React.useState(true);
+  const [jobDescriptions, setJobDescriptions] = React.useState<JobDescriptionItem[]>(_cachedJobDescriptions ?? []);
+  const [totalMatchedCandidates, setTotalMatchedCandidates] = React.useState<number>(_cachedTotalMatchedCandidates);
+  const [isLoadingDescriptions, setIsLoadingDescriptions] = React.useState(_cachedJobDescriptions === null);
   
   // Assessment Jobs (jobs table)
-  const [jobs, setJobs] = React.useState<JobItem[]>([]);
-  const [isLoadingJobs, setIsLoadingJobs] = React.useState(true);
+  const [jobs, setJobs] = React.useState<JobItem[]>(_cachedJobs ?? []);
+  const [isLoadingJobs, setIsLoadingJobs] = React.useState(_cachedJobs === null);
+
+  // Status Filter for JDs
+  const [jdStatusFilter, setJdStatusFilter] = React.useState('All');
 
   // Selected JD for detail view modal
   const [selectedJD, setSelectedJD] = React.useState<JobDescriptionItem | null>(null);
@@ -52,7 +60,6 @@ export default function JobsPage() {
   // Fetch Supabase job_descriptions
   const fetchJobDescriptions = async () => {
     try {
-      setIsLoadingDescriptions(true);
       const res = await fetch('/api/jobs/descriptions');
       if (!res.ok) {
         console.warn(`Failed to fetch job descriptions (status: ${res.status})`);
@@ -60,9 +67,11 @@ export default function JobsPage() {
       }
       const data = await res.json();
       if (data.jobDescriptions) {
+        _cachedJobDescriptions = data.jobDescriptions;
         setJobDescriptions(data.jobDescriptions);
       }
       if (typeof data.totalMatchedCandidates === 'number') {
+        _cachedTotalMatchedCandidates = data.totalMatchedCandidates;
         setTotalMatchedCandidates(data.totalMatchedCandidates);
       }
     } catch (error) {
@@ -75,7 +84,6 @@ export default function JobsPage() {
   // Fetch assessment jobs
   const fetchJobs = async () => {
     try {
-      setIsLoadingJobs(true);
       const res = await fetch('/api/jobs');
       if (!res.ok) {
         console.warn(`Failed to fetch assessment jobs (status: ${res.status})`);
@@ -83,6 +91,7 @@ export default function JobsPage() {
       }
       const data = await res.json();
       if (data.jobs) {
+        _cachedJobs = data.jobs;
         setJobs(data.jobs);
       }
     } catch (error) {
@@ -92,7 +101,12 @@ export default function JobsPage() {
     }
   };
 
+  const hasFetched = React.useRef(false);
+
   React.useEffect(() => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+    // If we have cached data, fetch silently in background (no loading spinner)
     fetchJobDescriptions();
     fetchJobs();
   }, []);
@@ -127,6 +141,25 @@ export default function JobsPage() {
     } catch (error) {
       console.error('Error updating job status:', error);
       fetchJobs();
+    }
+  };
+
+  // Handle status toggle for job descriptions
+  const handleJDStatusChange = async (jd: JobDescriptionItem) => {
+    const nextStatus = jd.status === 'Active' ? 'Inactive' : 'Active';
+    try {
+      setJobDescriptions((prev) =>
+        prev.map((j) => (j.contentHash === jd.contentHash ? { ...j, status: nextStatus } : j))
+      );
+      const res = await fetch('/api/jobs/descriptions/status', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentHash: jd.contentHash, status: nextStatus }),
+      });
+      if (!res.ok) fetchJobDescriptions();
+    } catch (error) {
+      console.error('Error updating JD status:', error);
+      fetchJobDescriptions();
     }
   };
 
@@ -247,6 +280,27 @@ export default function JobsPage() {
           })}
         </span>
       ),
+    },
+    {
+      header: 'Status',
+      accessorKey: 'status',
+      sortable: true,
+      cell: (jd: JobDescriptionItem) => {
+        const isActive = jd.status !== 'Inactive';
+        return (
+          <button
+            onClick={() => handleJDStatusChange(jd)}
+            className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-sm border cursor-pointer select-none transition-all hover:brightness-95 uppercase ${
+              isActive
+                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                : 'bg-neutral-100 text-neutral-600 border-neutral-200'
+            }`}
+            title="Click to toggle status"
+          >
+            {isActive ? 'ACTIVE' : 'INACTIVE'}
+          </button>
+        );
+      },
     },
     {
       header: 'Actions',
@@ -537,13 +591,28 @@ export default function JobsPage() {
               </div>
             </div>
           ) : (
-            <DataTable
-              columns={jobDescriptionColumns}
-              data={jobDescriptions}
-              searchPlaceholder="Search by job title, job code, or description..."
-              searchKey="jobTitle"
-              itemsPerPage={10}
-            />
+            <div className="space-y-3">
+              <div className="flex justify-end">
+                <select
+                  value={jdStatusFilter}
+                  onChange={(e) => setJdStatusFilter(e.target.value)}
+                  className="text-xs rounded-sm border border-neutral-200 bg-white px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-600 focus:border-indigo-600 cursor-pointer"
+                >
+                  <option value="All">All Status</option>
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </div>
+              <DataTable
+                columns={jobDescriptionColumns}
+                data={jobDescriptions.filter(
+                  (jd) => jdStatusFilter === 'All' || (jd.status || 'Active') === jdStatusFilter
+                )}
+                searchPlaceholder="Search by job title, job code, or description..."
+                searchKey="jobTitle"
+                itemsPerPage={10}
+              />
+            </div>
           )}
         </div>
       )}

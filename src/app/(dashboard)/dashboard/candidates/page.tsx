@@ -41,13 +41,18 @@ const inviteSchema = z.object({
 
 type InviteValues = z.infer<typeof inviteSchema>;
 
+// Module-level cache — survives client-side navigations within the session
+let _cachedCandidates: CandidateItem[] | null = null;
+let _cachedActiveJobs: JobMinimal[] | null = null;
+
 export default function CandidatesPage() {
-  const [candidates, setCandidates] = React.useState<CandidateItem[]>([]);
-  const [activeJobs, setActiveJobs] = React.useState<JobMinimal[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [candidates, setCandidates] = React.useState<CandidateItem[]>(_cachedCandidates ?? []);
+  const [activeJobs, setActiveJobs] = React.useState<JobMinimal[]>(_cachedActiveJobs ?? []);
+  const [isLoading, setIsLoading] = React.useState(_cachedCandidates === null);
   const [isInviteOpen, setIsInviteOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState('ALL');
+  const [activeFilter, setActiveFilter] = React.useState('All');
   const [sendingEmailId, setSendingEmailId] = React.useState<string | null>(null);
 
   // Selected candidate for viewing full summary / resume
@@ -67,10 +72,12 @@ export default function CandidatesPage() {
   // Fetch candidates
   const loadCandidates = async () => {
     try {
-      setIsLoading(true);
       const res = await fetch('/api/candidates');
       const data = await res.json();
-      if (data.candidates) setCandidates(data.candidates);
+      if (data.candidates) {
+        _cachedCandidates = data.candidates;
+        setCandidates(data.candidates);
+      }
     } catch (err) {
       console.error('Error loading candidates:', err);
     } finally {
@@ -84,14 +91,20 @@ export default function CandidatesPage() {
       const res = await fetch('/api/jobs');
       const data = await res.json();
       if (data.jobs) {
-        setActiveJobs(data.jobs.filter((j: any) => j.status === 'ACTIVE'));
+        const filtered = data.jobs.filter((j: any) => j.status === 'ACTIVE');
+        _cachedActiveJobs = filtered;
+        setActiveJobs(filtered);
       }
     } catch (err) {
       console.error('Error loading jobs:', err);
     }
   };
 
+  const hasFetched = React.useRef(false);
+
   React.useEffect(() => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
     loadCandidates();
     loadActiveJobs();
   }, []);
@@ -150,6 +163,24 @@ export default function CandidatesPage() {
     }
   };
 
+  const handleCandidateStatusChange = async (candidate: CandidateItem) => {
+    const nextStatus = (candidate.status || 'Active') === 'Active' ? 'Inactive' : 'Active';
+    try {
+      setCandidates((prev) =>
+        prev.map((c) => (c.id === candidate.id ? { ...c, status: nextStatus } : c))
+      );
+      const res = await fetch(`/api/candidates/${candidate.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!res.ok) loadCandidates();
+    } catch (error) {
+      console.error('Error updating candidate status:', error);
+      loadCandidates();
+    }
+  };
+
   const handleCopyText = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -175,8 +206,9 @@ export default function CandidatesPage() {
       company.toLowerCase().includes(query);
 
     const matchesStatus = statusFilter === 'ALL' || c.assessmentStatus === statusFilter;
+    const matchesActive = activeFilter === 'All' || (c.status || 'Active') === activeFilter;
 
-    return matchesSearch && matchesStatus;
+    return matchesSearch && matchesStatus && matchesActive;
   });
 
   const getStatusColor = (status: string) => {
@@ -338,6 +370,59 @@ export default function CandidatesPage() {
       ),
     },
     {
+      header: 'Created At',
+      accessorKey: 'createdAt',
+      sortable: true,
+      cell: (c: CandidateItem) => {
+        if (!c.createdAt) return <span className="text-[11px] text-neutral-500">—</span>;
+        try {
+          const date = new Date(c.createdAt);
+          if (isNaN(date.getTime())) return <span className="text-[11px] text-neutral-500">—</span>;
+          
+          const formattedDate = new Intl.DateTimeFormat('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+          }).format(date);
+          
+          const formattedTime = new Intl.DateTimeFormat('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+          }).format(date);
+          
+          return (
+            <span className="text-[11px] text-neutral-700 whitespace-nowrap">
+              {formattedDate}, {formattedTime}
+            </span>
+          );
+        } catch (e) {
+          return <span className="text-[11px] text-neutral-500">—</span>;
+        }
+      },
+    },
+    {
+      header: 'Status',
+      accessorKey: 'status',
+      sortable: true,
+      cell: (c: CandidateItem) => {
+        const isActive = (c.status || 'Active') !== 'Inactive';
+        return (
+          <button
+            onClick={() => handleCandidateStatusChange(c)}
+            className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-sm border cursor-pointer select-none transition-all hover:brightness-95 uppercase ${
+              isActive
+                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                : 'bg-neutral-100 text-neutral-600 border-neutral-200'
+            }`}
+            title="Click to toggle status"
+          >
+            {isActive ? 'ACTIVE' : 'INACTIVE'}
+          </button>
+        );
+      },
+    },
+    {
       header: 'Actions',
       cell: (c: CandidateItem) => (
         <div className="flex items-center justify-end gap-1.5">
@@ -474,6 +559,15 @@ export default function CandidatesPage() {
             <option value="COMPLETED">Completed</option>
             <option value="EVALUATED">Evaluated</option>
             <option value="EXPIRED">Expired</option>
+          </select>
+          <select
+            value={activeFilter}
+            onChange={(e) => setActiveFilter(e.target.value)}
+            className="text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2 focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900 cursor-pointer"
+          >
+            <option value="All">All Profiles</option>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
           </select>
         </div>
       </div>
