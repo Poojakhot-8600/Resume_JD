@@ -360,7 +360,7 @@ export default function UploadJobDescriptionPage() {
       // Final pre-webhook validation check across all items:
       for (const jd of jobDescriptionsPayload) {
         const isPdf = jd.file_type === 'application/pdf' || jd.file_name.toLowerCase().endsWith('.pdf');
-        if (isPdf && !validateExtractedPdfText(jd.text)) {
+        if (isPdf && !validateExtractedPdfText(jd.text || '')) {
           setError('PDF text extraction failed');
           return;
         }
@@ -779,7 +779,7 @@ export default function UploadJobDescriptionPage() {
                         <div className="flex items-center gap-2 shrink-0">
                           <button
                             type="button"
-                            onClick={() => handleCopyText(idx, item.text)}
+                            onClick={() => handleCopyText(idx, item.text || item.description || '')}
                             className="p-1 text-neutral-500 hover:text-neutral-900 text-xs font-medium flex items-center gap-1 cursor-pointer"
                           >
                             {copiedTextIdx === idx ? (
@@ -805,7 +805,7 @@ export default function UploadJobDescriptionPage() {
                             Extracted Text Sent in Payload
                           </span>
                           <div className="p-3 bg-neutral-50 rounded border border-neutral-200 max-h-56 overflow-y-auto font-mono text-xs text-neutral-800 leading-relaxed whitespace-pre-wrap select-all">
-                            {item.text}
+                            {item.text || item.description}
                           </div>
                         </div>
                       )}
