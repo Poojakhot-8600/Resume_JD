@@ -435,15 +435,9 @@ export default function JobsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold tracking-tight text-neutral-900">Job Openings</h2>
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              <Database className="h-3 w-3" />
-              Connected to Supabase
-            </span>
-          </div>
+          <h2 className="text-xl font-bold tracking-tight text-neutral-900">Job Openings</h2>
           <p className="text-xs text-neutral-500 mt-1">
-            Live job descriptions and candidates synced directly from your Supabase database.
+            Manage job openings, candidate matches, and assessment models.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -487,7 +481,6 @@ export default function JobsPage() {
             <FileText className="h-4 w-4 text-indigo-600" />
           </div>
           <p className="mt-2 text-2xl font-black text-neutral-900">{jobDescriptions.length}</p>
-          <span className="text-[11px] text-neutral-400">table: job_descriptions</span>
         </div>
         <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-xs">
           <div className="flex items-center justify-between">
@@ -497,7 +490,6 @@ export default function JobsPage() {
           <p className="mt-2 text-2xl font-black text-emerald-700">
             {totalMatchedCandidates > 0 ? totalMatchedCandidates : totalCandidatesAcrossJDs}
           </p>
-          <span className="text-[11px] text-neutral-400">table: output</span>
         </div>
         <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-xs">
           <div className="flex items-center justify-between">
@@ -505,7 +497,6 @@ export default function JobsPage() {
             <Briefcase className="h-4 w-4 text-blue-600" />
           </div>
           <p className="mt-2 text-2xl font-black text-neutral-900">{jobs.length}</p>
-          <span className="text-[11px] text-neutral-400">table: jobs</span>
         </div>
         <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-xs">
           <div className="flex items-center justify-between">
@@ -538,8 +529,8 @@ export default function JobsPage() {
               : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
           }`}
         >
-          <Database className="h-4 w-4" />
-          <span>Job Descriptions (Supabase)</span>
+          <FileText className="h-4 w-4" />
+          <span>Job Descriptions</span>
           <span className="ml-1.5 px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700 font-semibold border border-indigo-100">
             {jobDescriptions.length}
           </span>
@@ -562,23 +553,23 @@ export default function JobsPage() {
         </button>
       </div>
 
-      {/* Tab 1 Content: Supabase job_descriptions */}
+      {/* Tab 1 Content: Job Descriptions */}
       {activeTab === 'descriptions' && (
         <div>
           {isLoadingDescriptions ? (
             <div className="py-24 flex flex-col items-center justify-center space-y-3 bg-white border border-neutral-200 rounded-xl shadow-xs">
               <div className="h-6 w-6 border-2 border-indigo-600 border-t-transparent animate-spin rounded-full" />
-              <span className="text-xs text-neutral-500">Loading job descriptions from Supabase...</span>
+              <span className="text-xs text-neutral-500">Loading job descriptions...</span>
             </div>
           ) : jobDescriptions.length === 0 ? (
             <div className="py-24 flex flex-col items-center justify-center text-center space-y-3 px-4 bg-white border border-neutral-200 rounded-xl shadow-xs">
               <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-100 text-neutral-400 inline-block w-fit mx-auto">
-                <Database className="h-6 w-6" />
+                <FileText className="h-6 w-6" />
               </div>
               <div className="space-y-1">
-                <h3 className="text-sm font-semibold text-neutral-900">No Job Descriptions in Supabase</h3>
+                <h3 className="text-sm font-semibold text-neutral-900">No Job Descriptions Found</h3>
                 <p className="text-xs text-neutral-500 max-w-xs mx-auto">
-                  Upload a new job description to populate your Supabase table.
+                  Upload a new job description to get started.
                 </p>
               </div>
               <div className="mt-2">

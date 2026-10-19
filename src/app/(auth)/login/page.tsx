@@ -9,11 +9,16 @@ import * as z from 'zod';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff } from 'lucide-react';
 
 const loginSchema = z.object({
-  email: z.string().email('Invalid email format'),
-  password: z.string().min(1, 'Password is required'),
+  email: z
+    .string()
+    .min(1, 'Please enter your email address.')
+    .email('Invalid email or password. Please try again.'),
+  password: z
+    .string()
+    .min(1, 'Please enter your password.'),
 });
 
 type LoginValues = z.infer<typeof loginSchema>;
@@ -34,6 +39,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [errorAlert, setErrorAlert] = React.useState('');
   const [loading, setLoading] = React.useState(false);
+  const [showPassword, setShowPassword] = React.useState(false);
 
   const {
     register,
@@ -62,7 +68,7 @@ export default function LoginPage() {
         if (data.error) {
           setErrorAlert(data.error);
         } else if (res.status === 400 || res.status === 401) {
-          setErrorAlert('Invalid email or password.');
+          setErrorAlert('Invalid email or password. Please try again.');
         } else {
           setErrorAlert(`Server error (${res.status}). Please try again shortly.`);
         }
@@ -73,7 +79,7 @@ export default function LoginPage() {
       router.push('/dashboard');
       router.refresh();
     } catch (err: unknown) {
-      setErrorAlert(err instanceof Error ? err.message : 'Check your credentials and try again.');
+      setErrorAlert(err instanceof Error ? err.message : 'Invalid email or password. Please try again.');
       setLoading(false);
     }
   };
@@ -115,9 +121,9 @@ export default function LoginPage() {
         </div>
 
         {errorAlert && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-100 text-red-800 text-xs rounded-sm flex items-start gap-2 leading-relaxed">
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-sm flex items-start gap-2 leading-relaxed">
             <AlertCircle className="h-4 w-4 shrink-0 text-red-600 mt-0.5" />
-            <span>{errorAlert}</span>
+            <span className="font-medium text-red-700">{errorAlert}</span>
           </div>
         )}
 
@@ -130,13 +136,34 @@ export default function LoginPage() {
             {...register('email')}
           />
 
-          <Input
-            label="Password"
-            type="password"
-            placeholder="••••••••"
-            error={errors.password?.message}
-            {...register('password')}
-          />
+          <div className="space-y-1">
+            <Input
+              label="Password"
+              type={showPassword ? 'text' : 'password'}
+              placeholder="••••••••"
+              error={errors.password?.message}
+              rightElement={
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="p-1 text-neutral-400 hover:text-neutral-700 focus:outline-none"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              }
+              {...register('password')}
+            />
+            <div className="flex justify-end pt-1">
+              <Link
+                href="/forgot-password"
+                className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline"
+              >
+                Forgot Password?
+              </Link>
+            </div>
+          </div>
 
           <div className="pt-2">
             <Button type="submit" className="w-full cursor-pointer" isLoading={loading}>

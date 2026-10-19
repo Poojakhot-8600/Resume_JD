@@ -473,13 +473,7 @@ export default function CandidatesPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold tracking-tight text-neutral-900">Candidates Directory</h2>
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              <Database className="h-3 w-3" />
-              Synced with Supabase
-            </span>
-          </div>
+          <h2 className="text-xl font-bold tracking-tight text-neutral-900">Candidates Directory</h2>
           <p className="text-xs text-neutral-500 mt-1">
             Candidate profiles, extracted resume summaries, skills, and assessment scores.
           </p>
@@ -506,7 +500,6 @@ export default function CandidatesPage() {
             <Users className="h-4 w-4 text-indigo-600" />
           </div>
           <p className="mt-2 text-2xl font-black text-neutral-900">{candidates.length}</p>
-          <span className="text-[11px] text-neutral-400">table: candidates</span>
         </div>
         <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-xs">
           <div className="flex items-center justify-between">

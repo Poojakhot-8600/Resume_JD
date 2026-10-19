@@ -2,6 +2,9 @@ import '@/utils/dns-fix';
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/utils/auth';
 import { extractTextFromFile, isSupportedFormat, resolveFileType } from '@/utils/documentParser';
+import crypto from 'crypto';
+import { createBatch, processJobBatchAsync } from '@/services/batchService';
+import { UploadBatchResponse } from '@/types';
 
 interface JobDescriptionPayloadItem {
   position_id?: string | null;
@@ -52,7 +55,7 @@ export async function POST(request: Request) {
         if (!isSupportedFormat(file.name)) {
           return NextResponse.json(
             {
-              error: `File "${file.name}" has an unsupported format. Supported formats: .pdf, .docx, .doc, .csv, .txt`,
+              error: `File "${file.name}" has an unsupported format. Supported formats: .pdf, .docx, .doc, .xlsx, .xls, .csv, .txt`,
             },
             { status: 400 }
           );
@@ -154,7 +157,7 @@ export async function POST(request: Request) {
             description: item.description,
             file_name: fileName,
             file_type: fileType,
-            text: textVal || undefined,
+            text: textVal || descVal || undefined,
             wordCount: fallbackWordCount,
             charCount: fallbackCharCount,
           });
@@ -189,6 +192,7 @@ export async function POST(request: Request) {
       );
     }
 
+    // Required Job Description Webhook Payload structure
     const webhookPayload = {
       job_descriptions: processedJDs.map((j) => {
         const payloadItem: any = {
@@ -210,67 +214,43 @@ export async function POST(request: Request) {
 
     const secret = process.env.N8N_SHARED_SECRET || 'super-secret-key';
 
+    // Generate unique batch ID
+    const batchId = `batch_job_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
+    // Register batch in Supabase upload_batches table
+    const batch = await createBatch({
+      id: batchId,
+      userId: user.id,
+      batchType: 'job',
+      totalReceived: processedJDs.length,
+      metadata: {
+        file_names: processedJDs.map((j) => j.file_name),
+      },
+    });
+
     console.log(
-      `[Job Description Upload] Dispatching ONE webhook request with ${processedJDs.length} JD(s) to: ${webhookUrl}`
+      `[Job Description Upload] Registered batch "${batchId}" with ${processedJDs.length} item(s). Starting async n8n processing...`
     );
 
-    let webhookResponseStatus = 200;
-    let webhookResponseBody: any = null;
-    let webhookSuccess = true;
-    let webhookMessage = `Delivered ${processedJDs.length} job description(s) in ONE webhook request.`;
-
-    try {
-      const n8nRes = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-webhook-secret': secret,
-        },
-        body: JSON.stringify(webhookPayload),
-      });
-
-      webhookResponseStatus = n8nRes.status;
-      const rawResText = await n8nRes.text();
-
-      try {
-        webhookResponseBody = JSON.parse(rawResText);
-      } catch {
-        webhookResponseBody = rawResText;
-      }
-
-      if (!n8nRes.ok) {
-        webhookSuccess = false;
-        if (n8nRes.status === 404) {
-          webhookMessage =
-            'Webhook returned 404. In n8n test mode, please click "Execute workflow" on your n8n canvas so it listens for the event.';
-        } else {
-          webhookMessage = `Webhook responded with status ${n8nRes.status}: ${
-            typeof webhookResponseBody === 'string'
-              ? webhookResponseBody
-              : JSON.stringify(webhookResponseBody)
-          }`;
+    // Trigger asynchronous background worker without waiting for long-running workflow
+    setImmediate(() => {
+      processJobBatchAsync(batchId, user.id, processedJDs as any, webhookUrl, secret).catch(
+        (err) => {
+          console.error(`[Job Description Upload] Background processing error for batch ${batchId}:`, err);
         }
-      }
-    } catch (err: any) {
-      console.error('[Job Description Upload] Error sending to webhook:', err);
-      webhookSuccess = false;
-      webhookResponseStatus = 500;
-      webhookMessage = `Failed to connect to webhook: ${err.message}${
-        err.cause ? ' (' + (err.cause.code || err.cause.message) + ')' : ''
-      }`;
-    }
-
-    return NextResponse.json({
-      success: true,
-      count: processedJDs.length,
-      job_descriptions: processedJDs,
-      webhookPayload,
-      webhookSuccess,
-      webhookStatus: webhookResponseStatus,
-      webhookMessage,
-      webhookUrl,
-      webhookResponse: webhookResponseBody,
+      );
     });
+
+    // Return accepted response with batch_id and processing status (never fabricated success counts)
+    return NextResponse.json(
+      {
+        batch_id: batchId,
+        status: 'processing',
+        total_received: processedJDs.length,
+        message: 'Files uploaded. Sending to n8n for processing...',
+      },
+      { status: 202 }
+    );
   } catch (error: any) {
     console.error('Error processing job description file upload:', error);
     return NextResponse.json(

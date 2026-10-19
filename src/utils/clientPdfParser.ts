@@ -123,7 +123,7 @@ export async function extractPdfTextInBrowser(file: File): Promise<string> {
 
 /**
  * Extract text from a frontend file based on its extension / MIME type.
- * Supports PDF (.pdf), Word (.docx, .doc), CSV (.csv), and Text (.txt).
+ * Supports PDF (.pdf), Word (.docx, .doc), Excel (.xlsx, .xls), CSV (.csv), and Text (.txt).
  */
 export async function extractTextFromClientFile(file: File): Promise<{
   text: string;
@@ -162,6 +162,33 @@ export async function extractTextFromClientFile(file: File): Promise<{
     const res = await fetch('/api/jobs/parse-document', { method: 'POST', body: formData });
     const data = await res.json();
     text = data.text || '';
+  } else if (
+    ext === 'xlsx' ||
+    ext === 'xls' ||
+    file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    file.type === 'application/vnd.ms-excel'
+  ) {
+    fileType =
+      ext === 'xls'
+        ? 'application/vnd.ms-excel'
+        : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    try {
+      const XLSX = await import('xlsx');
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const { extractExcelWorkbookText } = await import('@/utils/documentParser');
+      text = extractExcelWorkbookText(workbook);
+      if (!text || text.trim().length === 0) {
+        throw new Error('Empty workbook text');
+      }
+    } catch {
+      // Fallback to parse-document endpoint
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/jobs/parse-document', { method: 'POST', body: formData });
+      const data = await res.json();
+      text = data.text || '';
+    }
   } else if (ext === 'csv' || file.type === 'text/csv') {
     fileType = 'text/csv';
     text = await file.text();

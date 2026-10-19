@@ -171,3 +171,51 @@ export interface JobDescriptionItem {
   candidatesCount: number;
   matchedCandidates?: MatchedCandidate[];
 }
+
+export interface UploadRecordDetail {
+  file_name?: string;
+  job_code?: string;
+  job_title?: string;
+  candidate_id?: string;
+  candidate_name?: string;
+  candidate_email?: string;
+  reason?: string;
+  error?: string;
+  text?: string;
+  file_type?: string;
+  wordCount?: number;
+  charCount?: number;
+  status?: 'inserted' | 'duplicate' | 'failed';
+  [key: string]: any;
+}
+
+export type BatchStatus = 'pending' | 'processing' | 'completed' | 'completed_with_errors' | 'failed';
+
+export interface UploadBatchResponse {
+  batch_id?: string;
+  status?: BatchStatus;
+  success?: boolean;
+  message: string;
+  total_received: number;
+  inserted_count: number;
+  duplicate_count: number;
+  failed_count: number;
+  inserted_records: UploadRecordDetail[];
+  duplicate_records: UploadRecordDetail[];
+  failed_records: UploadRecordDetail[];
+  inserted_candidates?: UploadRecordDetail[];
+  duplicate_candidates?: UploadRecordDetail[];
+  failed_candidates?: UploadRecordDetail[];
+  inserted_job_descriptions?: UploadRecordDetail[];
+  duplicate_job_descriptions?: UploadRecordDetail[];
+  failed_job_descriptions?: UploadRecordDetail[];
+  unknown_outcome?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UploadBatchStatusResponse extends UploadBatchResponse {
+  batch_id: string;
+  status: BatchStatus;
+}
+

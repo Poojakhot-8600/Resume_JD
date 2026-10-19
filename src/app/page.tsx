@@ -42,15 +42,15 @@ export default function LandingPage() {
         </div>
 
         {/* CTA Buttons */}
-        <div className="flex flex-col sm:flex-row items-center gap-4">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link href="/signup">
-            <Button size="lg" className="w-48 cursor-pointer flex items-center gap-2">
+            <Button size="lg" className="min-w-56 cursor-pointer flex items-center justify-center gap-2 shadow-sm hover:shadow transition-all">
               <span>Create Recruiter Space</span>
               <ArrowRight className="h-4 w-4" />
             </Button>
           </Link>
           <Link href="/login">
-            <Button size="lg" variant="outline" className="w-48 cursor-pointer">
+            <Button size="lg" variant="outline" className="min-w-56 cursor-pointer justify-center shadow-xs hover:bg-neutral-50 transition-all">
               Recruiter Dashboard
             </Button>
           </Link>

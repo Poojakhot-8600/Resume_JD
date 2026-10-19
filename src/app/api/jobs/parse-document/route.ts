@@ -17,7 +17,7 @@ export async function POST(request: Request) {
 
     if (!isSupportedFormat(file.name)) {
       return NextResponse.json(
-        { error: `File "${file.name}" has an unsupported format. Supported formats: .pdf, .docx, .doc, .csv, .txt` },
+        { error: `File "${file.name}" has an unsupported format. Supported formats: .pdf, .docx, .doc, .xlsx, .xls, .csv, .txt` },
         { status: 400 }
       );
     }

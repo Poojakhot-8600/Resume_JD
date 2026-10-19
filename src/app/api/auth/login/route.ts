@@ -4,14 +4,18 @@ import { signJWT } from '@/utils/auth';
 import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
 import * as z from 'zod';
+import { createClient } from '@/utils/supabase/server';
 
 const loginSchema = z.object({
-  email: z.string(),
-  password: z.string().min(1, 'Password is required'),
+  email: z
+    .string({ message: 'Please enter your email address.' })
+    .min(1, 'Please enter your email address.'),
+  password: z
+    .string({ message: 'Please enter your password.' })
+    .min(1, 'Please enter your password.'),
 });
 
 export async function POST(request: Request) {
-
   try {
     const body = await request.json().catch(() => ({}));
     const parseResult = loginSchema.safeParse(body);
@@ -26,19 +30,41 @@ export async function POST(request: Request) {
     const { email, password } = parseResult.data;
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Search user record (case-insensitive)
+    // 1. Authenticate with Supabase Auth as the source of truth for login credentials
+    let isAuthenticated = false;
+    let authUser = null;
+    let supabaseChecked = false;
+
+    try {
+      const supabase = await createClient();
+      const { data: supabaseAuth, error: supabaseError } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+
+      supabaseChecked = true;
+
+      if (!supabaseError && supabaseAuth?.user) {
+        isAuthenticated = true;
+        authUser = supabaseAuth.user;
+      }
+    } catch (supabaseErr) {
+      console.warn('Supabase signInWithPassword check failed:', supabaseErr);
+    }
+
+    // 2. Fetch User table record (case-insensitive)
     let user = await prisma.user.findFirst({
       where: {
         email: { equals: normalizedEmail, mode: 'insensitive' },
       },
     });
 
-    // Self-heal: auto-create admin user if missing when logging in with admin credentials
-    if (!user && normalizedEmail === 'admin@gmail.com' && (password === 'admin123' || password === '123123123')) {
+    // Self-heal: auto-create admin user if missing in User table
+    if (!user && normalizedEmail === 'admin@gmail.com') {
       const defaultHash = await bcrypt.hash('admin123', 10);
       user = await prisma.user.create({
         data: {
-          id: 'seeded-admin-user-id',
+          id: authUser?.id || 'seeded-admin-user-id',
           name: 'System Admin',
           email: 'admin@gmail.com',
           passwordHash: defaultHash,
@@ -47,41 +73,33 @@ export async function POST(request: Request) {
       });
     }
 
-    if (!user || !user.passwordHash) {
-      return NextResponse.json(
-        { error: 'Invalid login credentials' },
-        { status: 400 }
-      );
-    }
-
-    // Validate password match
-    let isMatch = await bcrypt.compare(password, user.passwordHash);
-
-    // Support both demo passwords (admin123 and 123123123) and self-heal hash
-    if (!isMatch && normalizedEmail === 'admin@gmail.com') {
-      if (password === 'admin123' || password === '123123123') {
-        const altPassword = password === 'admin123' ? '123123123' : 'admin123';
-        const altMatch = await bcrypt.compare(altPassword, user.passwordHash);
-        if (altMatch) {
-          isMatch = true;
-          // Synchronize hash to standard admin123
-          const updatedHash = await bcrypt.hash('admin123', 10);
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { passwordHash: updatedHash },
-          }).catch(console.error);
+    // 3. Fallback only if Supabase service was unreachable or offline
+    if (!isAuthenticated && !supabaseChecked) {
+      if (user && user.passwordHash) {
+        const isMatch = await bcrypt.compare(password, user.passwordHash);
+        if (isMatch) {
+          isAuthenticated = true;
         }
       }
     }
 
-    if (!isMatch) {
+    if (!isAuthenticated || !user) {
       return NextResponse.json(
-        { error: 'Invalid login credentials' },
-        { status: 400 }
+        { error: 'Invalid email or password. Please try again.' },
+        { status: 401 }
       );
     }
 
-    // Sign session token payload
+    // Keep User record's passwordHash in sync if password was verified via Supabase Auth
+    if (authUser && user) {
+      const updatedHash = await bcrypt.hash(password, 10);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: updatedHash },
+      }).catch(() => {});
+    }
+
+    // Sign session token payload for existing app routes
     const token = await signJWT({
       id: user.id,
       name: user.name,
@@ -112,13 +130,9 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     console.error('Custom Login API error:', error);
-    const detail = error?.message || 'An unexpected authentication error occurred.';
     return NextResponse.json(
       {
-        error:
-          process.env.NODE_ENV === 'development'
-            ? `Database/Server Error: ${detail}`
-            : 'An unexpected authentication error occurred.',
+        error: 'An unexpected authentication error occurred. Please try again.',
       },
       { status: 500 }
     );

@@ -2,6 +2,9 @@ import '@/utils/dns-fix';
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/utils/auth';
 import { extractTextFromFile, isSupportedFormat, resolveFileType } from '@/utils/documentParser';
+import crypto from 'crypto';
+import { createBatch, processCandidateBatchAsync } from '@/services/batchService';
+import { UploadBatchResponse } from '@/types';
 
 interface ResumePayloadItem {
   file_name: string;
@@ -49,7 +52,7 @@ export async function POST(request: Request) {
         if (!isSupportedFormat(file.name)) {
           return NextResponse.json(
             {
-              error: `File "${file.name}" has an unsupported format. Supported formats: .pdf, .docx, .doc, .csv, .txt`,
+              error: `File "${file.name}" has an unsupported format. Supported formats: .pdf, .docx, .doc, .xlsx, .xls, .csv, .txt`,
             },
             { status: 400 }
           );
@@ -160,11 +163,6 @@ export async function POST(request: Request) {
     }
 
     // Required Resume Webhook Payload structure:
-    // {
-    //   "resumes": [
-    //     { "file_name": "...", "file_type": "...", "text": "..." }
-    //   ]
-    // }
     const webhookPayload = {
       resumes: processedResumes.map((r) => ({
         file_name: r.file_name,
@@ -180,67 +178,43 @@ export async function POST(request: Request) {
 
     const secret = process.env.N8N_SHARED_SECRET || 'super-secret-key';
 
+    // Generate unique batch ID
+    const batchId = `batch_cand_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
+    // Register batch in Supabase upload_batches table
+    const batch = await createBatch({
+      id: batchId,
+      userId: user.id,
+      batchType: 'candidate',
+      totalReceived: processedResumes.length,
+      metadata: {
+        file_names: processedResumes.map((r) => r.file_name),
+      },
+    });
+
     console.log(
-      `[Candidate Resume Upload] Dispatching ONE webhook request with ${processedResumes.length} resume(s) to: ${webhookUrl}`
+      `[Candidate Resume Upload] Registered batch "${batchId}" with ${processedResumes.length} item(s). Starting async n8n processing...`
     );
 
-    let webhookResponseStatus = 200;
-    let webhookResponseBody: any = null;
-    let webhookSuccess = true;
-    let webhookMessage = `Delivered ${processedResumes.length} resume(s) in ONE webhook request.`;
-
-    try {
-      const n8nRes = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-webhook-secret': secret,
-        },
-        body: JSON.stringify(webhookPayload),
-      });
-
-      webhookResponseStatus = n8nRes.status;
-      const rawResText = await n8nRes.text();
-
-      try {
-        webhookResponseBody = JSON.parse(rawResText);
-      } catch {
-        webhookResponseBody = rawResText;
-      }
-
-      if (!n8nRes.ok) {
-        webhookSuccess = false;
-        if (n8nRes.status === 404) {
-          webhookMessage =
-            'Webhook returned 404. In n8n test mode, please click "Execute workflow" on your n8n canvas so it listens for the event.';
-        } else {
-          webhookMessage = `Webhook responded with status ${n8nRes.status}: ${
-            typeof webhookResponseBody === 'string'
-              ? webhookResponseBody
-              : JSON.stringify(webhookResponseBody)
-          }`;
+    // Trigger asynchronous background worker without waiting for long-running workflow
+    setImmediate(() => {
+      processCandidateBatchAsync(batchId, user.id, processedResumes, webhookUrl, secret).catch(
+        (err) => {
+          console.error(`[Candidate Resume Upload] Background processing error for batch ${batchId}:`, err);
         }
-      }
-    } catch (err: any) {
-      console.error('[Candidate Resume Upload] Error sending to webhook:', err);
-      webhookSuccess = false;
-      webhookResponseStatus = 500;
-      webhookMessage = `Failed to connect to webhook: ${err.message}${
-        err.cause ? ' (' + (err.cause.code || err.cause.message) + ')' : ''
-      }`;
-    }
-
-    return NextResponse.json({
-      success: true,
-      count: processedResumes.length,
-      resumes: processedResumes,
-      webhookPayload,
-      webhookSuccess,
-      webhookStatus: webhookResponseStatus,
-      webhookMessage,
-      webhookUrl,
-      webhookResponse: webhookResponseBody,
+      );
     });
+
+    // Return accepted response with batch_id and processing status (never fabricated success counts)
+    return NextResponse.json(
+      {
+        batch_id: batchId,
+        status: 'processing',
+        total_received: processedResumes.length,
+        message: 'Files uploaded. Sending to n8n for processing...',
+      },
+      { status: 202 }
+    );
   } catch (error: any) {
     console.error('Error processing resume file upload:', error);
     return NextResponse.json(

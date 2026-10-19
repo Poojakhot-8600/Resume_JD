@@ -64,6 +64,19 @@ export async function POST(request: Request) {
       });
     }
 
+    // Automatically sync new account into Supabase auth.users
+    try {
+      const { syncUserToSupabaseAuth } = await import('@/utils/supabase/syncUser');
+      await syncUserToSupabaseAuth({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        passwordHash: hashed,
+      });
+    } catch (syncErr) {
+      console.warn('Auto-sync to Supabase auth.users warning:', syncErr);
+    }
+
     // Sign session token payload
     const token = await signJWT({
       id: user.id,

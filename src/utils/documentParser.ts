@@ -86,6 +86,20 @@ export async function extractTextFromFile(
       const printable = raw.replace(/[^\x20-\x7E\r\n\t]/g, ' ');
       extractedText = printable.replace(/\s{2,}/g, ' ').trim();
     }
+  } else if (
+    ext === 'xlsx' ||
+    ext === 'xls' ||
+    mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    mimeType === 'application/vnd.ms-excel'
+  ) {
+    try {
+      const XLSX = require('xlsx');
+      const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+      extractedText = extractExcelWorkbookText(workbook);
+    } catch (excelErr: any) {
+      console.error('Failed to parse Excel spreadsheet:', excelErr?.message);
+      throw new Error(`Failed to parse Excel spreadsheet "${fileName}".`);
+    }
   } else if (ext === 'csv' || mimeType === 'text/csv') {
     const raw = fileBuffer.toString('utf-8');
     try {
@@ -133,7 +147,76 @@ export async function extractTextFromFile(
   };
 }
 
-export const SUPPORTED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'csv', 'txt', 'text']);
+/**
+ * Extracts clean, readable text from an Excel workbook (.xlsx, .xls).
+ * Handles both tabular sheets with headers and freeform/document sheets.
+ */
+export function extractExcelWorkbookText(workbook: any): string {
+  if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
+    return '';
+  }
+
+  const XLSX = require('xlsx');
+  const sheetTexts: string[] = [];
+
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet || !sheet['!ref']) continue;
+
+    // Get 2D array of rows
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '' }) as any[][];
+    if (!rows || rows.length === 0) continue;
+
+    // Determine if the sheet is a structured table:
+    // Row 0 has >= 2 non-empty string headers that do not end with a colon
+    const headerRow = rows[0] || [];
+    const validHeaders = headerRow.filter(
+      (h) => typeof h === 'string' && h.trim().length > 0 && !h.trim().endsWith(':')
+    );
+    const totalFilledHeaders = headerRow.filter((h) => String(h).trim().length > 0).length;
+    const isLikelyTable = rows.length > 1 && validHeaders.length >= 2 && validHeaders.length === totalFilledHeaders;
+
+    if (isLikelyTable) {
+      const headers = headerRow.map((h) => String(h).trim());
+      const dataRows = rows.slice(1);
+      const formattedBlocks = dataRows
+        .map((row) => {
+          return headers
+            .map((header, idx) => {
+              const val = row[idx] !== undefined && row[idx] !== null ? String(row[idx]).trim() : '';
+              return header && val ? `${header}: ${val}` : '';
+            })
+            .filter(Boolean)
+            .join('\n');
+        })
+        .filter((block) => block.trim().length > 0);
+
+      if (formattedBlocks.length > 0) {
+        sheetTexts.push(formattedBlocks.join('\n\n---\n\n'));
+        continue;
+      }
+    }
+
+    // Freeform or key-value spreadsheet
+    const lines = rows
+      .map((row) =>
+        row
+          .filter((cell) => cell !== null && cell !== undefined && String(cell).trim().length > 0)
+          .map((cell) => String(cell).trim())
+          .join(' ')
+          .trim()
+      )
+      .filter((line) => line.length > 0);
+
+    if (lines.length > 0) {
+      sheetTexts.push(lines.join('\n'));
+    }
+  }
+
+  return sheetTexts.join('\n\n').trim();
+}
+
+export const SUPPORTED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'csv', 'txt', 'text', 'xlsx', 'xls']);
 
 export function isSupportedFormat(fileName: string): boolean {
   const ext = fileName.split('.').pop()?.toLowerCase() || '';
@@ -145,6 +228,8 @@ export function resolveFileType(fileName: string, providedMime?: string): string
   if (ext === 'pdf') return 'application/pdf';
   if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   if (ext === 'doc') return 'application/msword';
+  if (ext === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (ext === 'xls') return 'application/vnd.ms-excel';
   if (ext === 'csv') return 'text/csv';
   if (ext === 'txt' || ext === 'text') return 'text/plain';
 

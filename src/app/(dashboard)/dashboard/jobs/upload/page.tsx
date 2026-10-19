@@ -6,6 +6,9 @@ import {
   UploadCloud, 
   CheckCircle2, 
   AlertTriangle, 
+  AlertCircle,
+  Layers,
+  Info,
   Loader2, 
   FileText, 
   ArrowLeft, 
@@ -23,14 +26,13 @@ import {
   Send
 } from 'lucide-react';
 import { extractTextFromClientFile, extractPdfTextInBrowser, validateExtractedPdfText } from '@/utils/clientPdfParser';
-
 interface ProcessedJDItem {
   position_id?: string | null;
   job_title?: string;
   description?: string;
   file_name: string;
   file_type: string;
-  text?: string; // Optional for Excel now, keeping it for generic/pdf text
+  text?: string;
   wordCount: number;
   charCount: number;
 }
@@ -58,25 +60,56 @@ interface BatchJDResult {
   skippedJdCount?: number;
 }
 
+import { UploadBatchResponse, UploadBatchStatusResponse, UploadRecordDetail } from '@/types';
+import { useBatchPolling } from '@/utils/useBatchPolling';
+
 export default function UploadJobDescriptionPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isUploadingRef = useRef(false);
 
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [uploadStage, setUploadStage] = useState<'idle' | 'initiated' | 'processing' | 'completed'>('idle');
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [batchResult, setBatchResult] = useState<BatchJDResult | null>(null);
   const [batchSummary, setBatchSummary] = useState<string | null>(null);
   const [manualText, setManualText] = useState('');
   const [manualTitle, setManualTitle] = useState('');
   const [showManualInput, setShowManualInput] = useState(false);
   const [expandedFileIdx, setExpandedFileIdx] = useState<number | null>(null);
-  const [copiedPayload, setCopiedPayload] = useState(false);
   const [copiedTextIdx, setCopiedTextIdx] = useState<number | null>(null);
   const [webhookUrl, setWebhookUrl] = useState<string>(
     process.env.NEXT_PUBLIC_N8N_JD_WEBHOOK_URL || 'https://pooja456.app.n8n.cloud/webhook-test/jd-upload'
   );
+
+  const {
+    activeBatchId,
+    batchResult,
+    setBatchResult,
+    isTimedOut,
+    startPolling,
+    checkStatusNow,
+    resetPolling,
+    pollingError,
+    uiState,
+  } = useBatchPolling({
+    storageKey: 'active_jd_upload_batch',
+    onCompleted: (result) => {
+      setUploadStage('completed');
+      if (
+        result.status === 'failed' ||
+        (result.failed_count > 0 && result.inserted_count === 0 && result.duplicate_count === 0)
+      ) {
+        setError(result.message || 'All job descriptions failed to process.');
+      }
+    },
+    onError: (err) => {
+      setError(err);
+    },
+  });
+
+  const isProcessing = uploadStage === 'initiated' || uiState === 'processing';
+
 
   React.useEffect(() => {
     // Check if custom browser override exists in localStorage
@@ -109,7 +142,8 @@ export default function UploadJobDescriptionPage() {
   // Add files to selection (maintaining order)
   const handleAddFiles = (files: FileList | File[]) => {
     setError(null);
-    setBatchResult(null);
+    resetPolling();
+    setUploadStage('idle');
     const fileArray = Array.from(files);
     if (fileArray.length === 0) return;
 
@@ -182,8 +216,9 @@ export default function UploadJobDescriptionPage() {
 
   const handleClearAll = () => {
     setSelectedFiles([]);
-    setBatchResult(null);
+    resetPolling();
     setError(null);
+    setUploadStage('idle');
   };
 
   // Upload and Send ALL selected files in ONE single webhook request
@@ -193,10 +228,14 @@ export default function UploadJobDescriptionPage() {
       return;
     }
 
+    if (isUploadingRef.current || isProcessing) return;
+    isUploadingRef.current = true;
+
     setError(null);
-    setIsProcessing(true);
-    setBatchResult(null);
     setBatchSummary(null);
+    resetPolling();
+    // State 1: Upload initiated
+    setUploadStage('initiated');
 
     try {
       // 1. Extract real readable text from each selected file using client-side extraction
@@ -320,6 +359,7 @@ export default function UploadJobDescriptionPage() {
         } catch (extractErr: any) {
           if (isPdf) {
             setError('PDF text extraction failed');
+            setUploadStage('idle');
             return;
           }
           throw extractErr;
@@ -331,12 +371,14 @@ export default function UploadJobDescriptionPage() {
         if (isPdf) {
           if (!validateExtractedPdfText(textVal)) {
             setError('PDF text extraction failed');
+            setUploadStage('idle');
             return;
           }
         }
 
         if (!textVal) {
           setError(`File "${file.name}" appears to be empty or unreadable.`);
+          setUploadStage('idle');
           return;
         }
 
@@ -362,21 +404,23 @@ export default function UploadJobDescriptionPage() {
         const isPdf = jd.file_type === 'application/pdf' || jd.file_name.toLowerCase().endsWith('.pdf');
         if (isPdf && !validateExtractedPdfText(jd.text || '')) {
           setError('PDF text extraction failed');
+          setUploadStage('idle');
           return;
         }
       }
 
-      // 2. Send ONE batch request with all JDs packaged together
+      // 2. Pre-check: If all items were skipped locally (e.g. from Excel duplicate checks)
       if (jobDescriptionsPayload.length === 0) {
         if (totalSkippedPosIdCount > 0 || totalSkippedJdCount > 0) {
            setError(`All rows were skipped as duplicates (${totalSkippedPosIdCount} by Position_ID, ${totalSkippedJdCount} by JD).`);
         } else {
            setError('No valid data found to upload.');
         }
-        setIsProcessing(false);
+        setUploadStage('idle');
         return;
       }
 
+      // Submit to backend API route and receive batch_id plus processing status
       const res = await fetch('/api/jobs/upload-jd-file', {
         method: 'POST',
         headers: {
@@ -387,32 +431,33 @@ export default function UploadJobDescriptionPage() {
         }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to process and upload job descriptions.');
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        throw new Error('Server returned an unparseable response.');
       }
 
-      setBatchResult({
-        ...data,
-        skippedPosIdCount: totalSkippedPosIdCount,
-        skippedJdCount: totalSkippedJdCount,
-      });
+      if (!res.ok) {
+        throw new Error(data?.error || data?.message || 'Failed to initiate job description processing.');
+      }
+
+      if (data?.batch_id) {
+        // State 2: n8n is processing in background
+        setUploadStage('processing');
+        startPolling(data.batch_id);
+      } else {
+        throw new Error('Upload response did not return a valid batch ID.');
+      }
     } catch (err: any) {
       console.error('Batch JD upload error:', err);
       setError(err.message || 'An error occurred while uploading job descriptions.');
+      setUploadStage('idle');
     } finally {
-      setIsProcessing(false);
+      isUploadingRef.current = false;
     }
   };
 
-
-  const handleCopyPayload = () => {
-    if (!batchResult?.webhookPayload) return;
-    navigator.clipboard.writeText(JSON.stringify(batchResult.webhookPayload, null, 2));
-    setCopiedPayload(true);
-    setTimeout(() => setCopiedPayload(false), 2000);
-  };
 
   const handleCopyText = (index: number, text: string) => {
     navigator.clipboard.writeText(text);
@@ -425,17 +470,11 @@ export default function UploadJobDescriptionPage() {
       {/* Header */}
       <div className="sm:flex sm:items-center sm:justify-between pb-6 border-b border-neutral-200">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-neutral-900">
-              Upload Job Descriptions
-            </h1>
-            <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 border border-indigo-200">
-              <Sparkles className="h-3 w-3" />
-              Single Batch Request
-            </span>
-          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-neutral-900">
+            Upload Job Descriptions
+          </h1>
           <p className="mt-1.5 text-sm text-neutral-500">
-            Select 1 or multiple job descriptions (.pdf, .docx, .doc, .txt, .csv, or .xlsx). All files are processed and delivered together in <strong>ONE webhook request</strong> under the <code className="bg-neutral-100 px-1 py-0.5 rounded font-mono text-neutral-800 font-semibold">{`"job_descriptions": [...]`}</code> array.
+            Upload job description documents (.pdf, .docx, .doc, .xlsx, .xls, .txt, or .csv) to extract requirements and skills for candidate matching.
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex items-center gap-2">
@@ -447,32 +486,6 @@ export default function UploadJobDescriptionPage() {
             <ArrowLeft className="h-4 w-4" />
             Back to Jobs
           </button>
-        </div>
-      </div>
-
-      {/* Webhook Info Card */}
-      <div className="bg-neutral-50 rounded-xl border border-neutral-200 p-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <div className="p-2 rounded-lg bg-white border border-neutral-200 shadow-xs text-indigo-600 mt-0.5">
-              <Sparkles className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-neutral-500">Target n8n Webhook</span>
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800">
-                  Active
-                </span>
-              </div>
-              <p className="text-xs font-mono text-neutral-700 mt-1 break-all select-all">
-                {batchResult?.webhookUrl || webhookUrl}
-              </p>
-            </div>
-          </div>
-          <div className="text-right shrink-0">
-            <span className="text-[11px] text-neutral-500">Required Payload Format</span>
-            <p className="text-xs font-mono text-indigo-600 font-semibold">{`{ "job_descriptions": [ { file_name, file_type, text } ] }`}</p>
-          </div>
         </div>
       </div>
 
@@ -508,7 +521,7 @@ export default function UploadJobDescriptionPage() {
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".pdf,.doc,.docx,.txt,.csv,.xlsx,.xls,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            accept=".pdf,.doc,.docx,.xlsx,.xls,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/plain,text/csv"
             onChange={handleFileChange}
             className="hidden"
           />
@@ -521,11 +534,11 @@ export default function UploadJobDescriptionPage() {
             Drop job description file(s) here, or <span className="text-indigo-600 underline">browse</span>
           </h3>
           <p className="text-xs text-neutral-500 mt-1.5 max-w-md mx-auto">
-            Select 1, 3, 5, or more JDs. Supports <span className="font-semibold text-neutral-700">.pdf, .docx, .doc, .csv, .xlsx, .txt</span>. All files will be sent together in ONE request.
+            Supports <span className="font-semibold text-neutral-700">PDF, Word (.docx, .doc), Excel (.xlsx, .xls), CSV, and Text (.txt)</span> files. You can select multiple files at once.
           </p>
 
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-            {['PDF (.pdf)', 'Word (.docx, .doc)', 'Excel (.xlsx, .csv)', 'Text (.txt)'].map((fmt) => (
+            {['PDF (.pdf)', 'Word (.docx, .doc)', 'Excel (.xlsx, .xls)', 'CSV (.csv)', 'Text (.txt)'].map((fmt) => (
               <span
                 key={fmt}
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium bg-neutral-100 text-neutral-600"
@@ -613,13 +626,13 @@ export default function UploadJobDescriptionPage() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-bold text-neutral-900 flex items-center gap-2">
-                  <span>Selected Job Descriptions for Batch</span>
+                  <span>Selected Job Descriptions</span>
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
                     {selectedFiles.length} {selectedFiles.length === 1 ? 'file' : 'files'}
                   </span>
                 </h3>
                 <p className="text-xs text-neutral-500 mt-0.5">
-                  All {selectedFiles.length} file{selectedFiles.length === 1 ? '' : 's'} will be packaged into a single JSON payload and delivered in <strong>ONE webhook request</strong>.
+                  {selectedFiles.length} file{selectedFiles.length === 1 ? '' : 's'} ready for upload and processing.
                 </p>
               </div>
 
@@ -643,12 +656,12 @@ export default function UploadJobDescriptionPage() {
                   {isProcessing ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>Extracting & Sending ONE Batch...</span>
+                      <span>Processing & Uploading...</span>
                     </>
                   ) : (
                     <>
                       <Send className="h-4 w-4" />
-                      <span>Send {selectedFiles.length} JD{selectedFiles.length === 1 ? '' : 's'} in ONE Request</span>
+                      <span>Upload {selectedFiles.length} Job Description{selectedFiles.length === 1 ? '' : 's'}</span>
                     </>
                   )}
                 </button>
@@ -689,121 +702,244 @@ export default function UploadJobDescriptionPage() {
         </div>
       )}
 
+      {/* State 1 & State 2: Background Processing Indicator */}
+      {isProcessing && (
+        <div className="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-6 shadow-xs animate-in fade-in duration-200 space-y-3">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-indigo-100 text-indigo-700 rounded-xl shrink-0 mt-0.5">
+              <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+            </div>
+            <div className="flex-1 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-neutral-900">
+                  {uploadStage === 'initiated'
+                    ? 'Uploading Job Descriptions'
+                    : 'Processing Job Descriptions'}
+                </h3>
+                {activeBatchId && (
+                  <span className="text-[11px] font-mono text-neutral-500 bg-white px-2 py-0.5 rounded border border-neutral-200">
+                    Batch #{activeBatchId.slice(-8)}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm font-medium text-neutral-700">
+                {uploadStage === 'initiated'
+                  ? 'Files uploaded. Sending to n8n for processing...'
+                  : 'Processing job descriptions, checking duplicates, and saving records to Supabase. Please wait...'}
+              </p>
+              <div className="w-full bg-indigo-100/70 rounded-full h-1.5 overflow-hidden mt-3">
+                <div className="bg-indigo-600 h-1.5 rounded-full w-2/3 animate-pulse" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Timeout Recovery Banner */}
+      {isTimedOut && !batchResult && (
+        <div className="p-5 rounded-2xl bg-amber-50 border border-amber-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-in fade-in duration-200">
+          <div className="flex items-start gap-3.5">
+            <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="text-sm font-bold text-amber-900">Processing In Progress</h4>
+              <p className="text-xs text-amber-800 mt-0.5">
+                Processing is taking longer than expected. Your batch status is still being checked.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={checkStatusNow}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-amber-600 text-white hover:bg-amber-700 shadow-xs cursor-pointer shrink-0"
+          >
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Check Status Again
+          </button>
+        </div>
+      )}
+
       {/* Batch Result Inspection Card */}
-      {batchResult && (
-        <div className="space-y-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-xl border border-neutral-200 p-5 shadow-xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <CheckCircle2 className="h-6 w-6" />
+      {batchResult && !isProcessing && (
+        <div className="space-y-5 animate-in fade-in duration-200">
+          {/* 1. Header Banner based on results */}
+          <div
+            className={`p-5 rounded-2xl border shadow-xs space-y-4 ${
+              batchResult.inserted_count > 0 && batchResult.duplicate_count === 0 && batchResult.failed_count === 0
+                ? 'bg-emerald-50/70 border-emerald-200'
+                : batchResult.inserted_count === 0 && batchResult.duplicate_count > 0 && batchResult.failed_count === 0
+                ? 'bg-amber-50/70 border-amber-200'
+                : batchResult.inserted_count === 0 && batchResult.failed_count > 0
+                ? 'bg-red-50/70 border-red-200'
+                : 'bg-white border-neutral-200'
+            }`}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div
+                  className={`p-2.5 rounded-xl mt-0.5 shrink-0 ${
+                    batchResult.inserted_count > 0 && batchResult.duplicate_count === 0 && batchResult.failed_count === 0
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : batchResult.inserted_count === 0 && batchResult.duplicate_count > 0 && batchResult.failed_count === 0
+                      ? 'bg-amber-100 text-amber-700'
+                      : batchResult.inserted_count === 0 && batchResult.failed_count > 0
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-indigo-100 text-indigo-700'
+                  }`}
+                >
+                  {batchResult.inserted_count > 0 && batchResult.duplicate_count === 0 && batchResult.failed_count === 0 ? (
+                    <CheckCircle2 className="h-6 w-6" />
+                  ) : batchResult.inserted_count === 0 && batchResult.duplicate_count > 0 && batchResult.failed_count === 0 ? (
+                    <AlertTriangle className="h-6 w-6" />
+                  ) : batchResult.inserted_count === 0 && batchResult.failed_count > 0 ? (
+                    <AlertCircle className="h-6 w-6" />
+                  ) : (
+                    <Layers className="h-6 w-6" />
+                  )}
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-neutral-900 flex items-center gap-2">
-                    <span>Batch Upload Successful</span>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                      HTTP {batchResult.webhookStatus}
+                  <h3 className="text-base font-bold text-neutral-900 flex flex-wrap items-center gap-2">
+                    <span>
+                      {batchResult.inserted_count > 0 && batchResult.duplicate_count === 0 && batchResult.failed_count === 0
+                        ? 'All Job Descriptions Inserted Successfully'
+                        : batchResult.inserted_count === 0 && batchResult.duplicate_count > 0 && batchResult.failed_count === 0
+                        ? 'Duplicate Job Descriptions Found'
+                        : batchResult.inserted_count === 0 && batchResult.failed_count > 0
+                        ? 'Job Description Upload Failed'
+                        : 'Upload Results Summary'}
+                    </span>
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700 border border-neutral-200">
+                      {batchResult.total_received} Total Received
                     </span>
                   </h3>
-                  <p className="text-xs text-neutral-500 mt-0.5">
-                    {batchResult.count} job description{batchResult.count === 1 ? '' : 's'} extracted and delivered in <strong>ONE webhook request</strong>.
-                    {batchResult.webhookResponse?.total_jds !== undefined && (
-                      <span className="ml-2 font-semibold text-indigo-600">
-                        Total JDs according to webhook: {batchResult.webhookResponse.total_jds}
-                      </span>
+                  {/* Granular Feedback Messages */}
+                  <div className="mt-2 space-y-1.5 text-xs">
+                    {batchResult.message ? (
+                      <p className="font-semibold text-neutral-800 text-sm leading-relaxed">{batchResult.message}</p>
+                    ) : (
+                      <>
+                        {batchResult.inserted_count > 0 && (
+                          <div className="flex items-center gap-2 font-semibold text-emerald-800">
+                            <Check className="h-4 w-4 text-emerald-600 shrink-0" />
+                            <span>
+                              {batchResult.inserted_count} job description{batchResult.inserted_count === 1 ? '' : 's'} inserted successfully into Supabase.
+                            </span>
+                          </div>
+                        )}
+                        {batchResult.duplicate_count > 0 && (
+                          <div className="flex items-center gap-2 font-semibold text-amber-800">
+                            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                            <span>
+                              {batchResult.duplicate_count} duplicate JD skipped.
+                            </span>
+                          </div>
+                        )}
+                        {batchResult.failed_count > 0 && (
+                          <div className="flex items-center gap-2 font-semibold text-red-800">
+                            <X className="h-4 w-4 text-red-600 shrink-0" />
+                            <span>
+                              {batchResult.failed_count} job description{batchResult.failed_count === 1 ? '' : 's'} failed.
+                            </span>
+                          </div>
+                        )}
+                      </>
                     )}
-                  </p>
-                  {batchSummary && (
-                    <p className="text-xs text-amber-600 font-medium mt-1 whitespace-pre-wrap">
-                      {batchSummary}
-                    </p>
-                  )}
+                    {batchSummary && (
+                      <p className="text-xs text-amber-600 font-medium mt-1 whitespace-pre-wrap">
+                        {batchSummary}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleCopyPayload}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-neutral-100 text-neutral-700 hover:bg-neutral-200 cursor-pointer"
-                >
-                  {copiedPayload ? (
-                    <>
-                      <Check className="h-3.5 w-3.5 text-emerald-600" />
-                      <span className="text-emerald-700">Copied Payload</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3.5 w-3.5" />
-                      <span>Copy Webhook Payload JSON</span>
-                    </>
-                  )}
-                </button>
+              {/* Status Counter Badges */}
+              <div className="flex flex-wrap sm:flex-col items-start sm:items-end gap-1.5 shrink-0 pt-2 sm:pt-0">
+                {batchResult.inserted_count > 0 && (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    {batchResult.inserted_count} Inserted
+                  </span>
+                )}
+                {batchResult.duplicate_count > 0 && (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                    {batchResult.duplicate_count} Duplicate{batchResult.duplicate_count === 1 ? '' : 's'} Skipped
+                  </span>
+                )}
+                {batchResult.failed_count > 0 && (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-300">
+                    {batchResult.failed_count} Failed
+                  </span>
+                )}
               </div>
             </div>
+          </div>
 
-            {/* Webhook Status Notice */}
-            <div className="p-3 bg-neutral-50 rounded-lg border border-neutral-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <span className="text-neutral-500">n8n Status:</span>{' '}
-                <span className="font-semibold text-neutral-800">{batchResult.webhookMessage}</span>
+          {/* 2. Categorized Record Lists */}
+          {/* A. Successfully Inserted Records */}
+          {((batchResult.inserted_job_descriptions && batchResult.inserted_job_descriptions.length > 0) ||
+            (batchResult.inserted_records && batchResult.inserted_records.length > 0)) && (
+            <div className="bg-white rounded-xl border border-neutral-200 p-5 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  <span>
+                    Successfully Inserted (
+                    {(batchResult.inserted_job_descriptions || batchResult.inserted_records || []).length}
+                    )
+                  </span>
+                </span>
+                <span className="text-[11px] text-neutral-400">Added to database</span>
               </div>
-              <span className="text-neutral-400 font-mono text-[11px]">Request Method: POST application/json</span>
-            </div>
-
-            {/* Itemized List of JDs in the Webhook Payload */}
-            <div className="space-y-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-neutral-700 block">
-                Delivered Job Descriptions ({batchResult.job_descriptions.length})
-              </span>
               <div className="space-y-2">
-                {batchResult.job_descriptions.map((item, idx) => {
+                {(batchResult.inserted_job_descriptions || batchResult.inserted_records || []).map((item, idx) => {
                   const isExpanded = expandedFileIdx === idx;
                   return (
-                    <div key={`${item.file_name}-${idx}`} className="border border-neutral-200 rounded-lg overflow-hidden">
+                    <div key={`inserted-${item.file_name}-${idx}`} className="border border-neutral-200 rounded-lg overflow-hidden">
                       <div className="p-3.5 bg-neutral-50 flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2.5 min-w-0">
                           <span className="font-mono text-neutral-400 text-[11px] w-5">#{idx + 1}</span>
-                          <Briefcase className="h-4 w-4 text-indigo-600 shrink-0" />
+                          <Briefcase className="h-4 w-4 text-emerald-600 shrink-0" />
                           <span className="font-semibold text-neutral-900 truncate max-w-xs sm:max-w-md">
-                            {item.file_name}
+                            {item.job_title || item.file_name}
                           </span>
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white border border-neutral-200 text-neutral-600 shrink-0">
-                            {item.file_type}
-                          </span>
-                          <span className="text-neutral-500 text-[11px] shrink-0">
-                            {item.wordCount} words • {item.charCount} chars
+                          {item.job_code && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold shrink-0">
+                              {item.job_code}
+                            </span>
+                          )}
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                            Inserted
                           </span>
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => handleCopyText(idx, item.text || item.description || '')}
-                            className="p-1 text-neutral-500 hover:text-neutral-900 text-xs font-medium flex items-center gap-1 cursor-pointer"
-                          >
-                            {copiedTextIdx === idx ? (
-                              <span className="text-emerald-600 font-semibold">Copied!</span>
-                            ) : (
-                              <Copy className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setExpandedFileIdx(isExpanded ? null : idx)}
-                            className="p-1 text-neutral-500 hover:text-neutral-900 text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                          >
-                            <span>{isExpanded ? 'Hide Text' : 'View Text'}</span>
-                            {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                          </button>
+                          {(item.text || item.description) && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyText(idx, item.text || item.description || '')}
+                                className="p-1 text-neutral-500 hover:text-neutral-900 text-xs font-medium flex items-center gap-1 cursor-pointer"
+                              >
+                                {copiedTextIdx === idx ? (
+                                  <span className="text-emerald-600 font-semibold">Copied!</span>
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setExpandedFileIdx(isExpanded ? null : idx)}
+                                className="p-1 text-neutral-500 hover:text-neutral-900 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>{isExpanded ? 'Hide Text' : 'View Text'}</span>
+                                {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
 
-                      {isExpanded && (
+                      {isExpanded && (item.text || item.description) && (
                         <div className="p-4 bg-white border-t border-neutral-200 space-y-2">
-                          <span className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider block">
-                            Extracted Text Sent in Payload
-                          </span>
                           <div className="p-3 bg-neutral-50 rounded border border-neutral-200 max-h-56 overflow-y-auto font-mono text-xs text-neutral-800 leading-relaxed whitespace-pre-wrap select-all">
                             {item.text || item.description}
                           </div>
@@ -814,41 +950,110 @@ export default function UploadJobDescriptionPage() {
                 })}
               </div>
             </div>
+          )}
 
-            {/* Live Webhook Payload Inspection */}
-            <div className="space-y-1.5 pt-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-neutral-700 block">
-                Dispatched Webhook JSON Payload
-              </span>
-              <pre className="bg-neutral-900 text-neutral-100 rounded-lg p-4 text-xs font-mono overflow-x-auto max-h-64 leading-relaxed">
-                {JSON.stringify(batchResult.webhookPayload, null, 2)}
-              </pre>
+          {/* B. Duplicate Skipped Records */}
+          {((batchResult.duplicate_job_descriptions && batchResult.duplicate_job_descriptions.length > 0) ||
+            (batchResult.duplicate_records && batchResult.duplicate_records.length > 0)) && (
+            <div className="bg-white rounded-xl border border-amber-200 p-5 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-800 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  <span>
+                    Duplicate Records Skipped (
+                    {(batchResult.duplicate_job_descriptions || batchResult.duplicate_records || []).length}
+                    )
+                  </span>
+                </span>
+                <span className="text-[11px] text-amber-600 font-medium">Already exists in Supabase</span>
+              </div>
+              <div className="space-y-2">
+                {(batchResult.duplicate_job_descriptions || batchResult.duplicate_records || []).map((item, idx) => (
+                  <div key={`dup-${item.file_name}-${idx}`} className="border border-amber-200 rounded-lg p-3.5 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                      <span className="font-semibold text-neutral-900 truncate max-w-xs sm:max-w-md">
+                        {item.job_title || item.file_name}
+                      </span>
+                      {item.job_code && item.job_code !== 'N/A' && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold shrink-0">
+                          {item.job_code}
+                        </span>
+                      )}
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 shrink-0">
+                        Duplicate Skipped
+                      </span>
+                    </div>
+                    <span className="text-xs text-amber-700 italic shrink-0">
+                      {item.reason || 'Record already present in Supabase.'}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Directory Link */}
-          <div className="p-5 bg-emerald-50/70 border border-emerald-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-lg bg-emerald-100 text-emerald-800">
-                <FileCheck className="h-5 w-5" />
+          {/* C. Failed Records */}
+          {((batchResult.failed_job_descriptions && batchResult.failed_job_descriptions.length > 0) ||
+            (batchResult.failed_records && batchResult.failed_records.length > 0)) && (
+            <div className="bg-white rounded-xl border border-red-200 p-5 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-red-800 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                  <span>
+                    Failed Records (
+                    {(batchResult.failed_job_descriptions || batchResult.failed_records || []).length}
+                    )
+                  </span>
+                </span>
+                <span className="text-[11px] text-red-600 font-medium">Action required</span>
               </div>
-              <div>
-                <h4 className="text-sm font-bold text-emerald-900">
-                  {batchResult.count} {batchResult.count === 1 ? 'Job Description' : 'Job Descriptions'} Delivered
-                </h4>
-                <p className="text-xs text-emerald-700 mt-0.5">
-                  Your n8n workflow received the array under <code className="font-mono bg-emerald-100 px-1 py-0.5 rounded">{`"job_descriptions"`}</code> for splitting and evaluation.
-                </p>
+              <div className="space-y-2">
+                {(batchResult.failed_job_descriptions || batchResult.failed_records || []).map((item, idx) => (
+                  <div key={`failed-${item.file_name}-${idx}`} className="border border-red-200 rounded-lg p-3.5 bg-red-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+                      <span className="font-semibold text-neutral-900 truncate max-w-xs sm:max-w-md">
+                        {item.file_name || 'Job Description Document'}
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 shrink-0">
+                        Failed
+                      </span>
+                    </div>
+                    <span className="text-xs text-red-700 font-medium shrink-0">
+                      {item.error || 'Failed to process document.'}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => router.push('/dashboard/jobs')}
-              className="w-full sm:w-auto px-4 py-2 rounded-lg bg-emerald-700 text-white hover:bg-emerald-800 text-xs font-semibold shadow-xs cursor-pointer text-center"
-            >
-              View Jobs Directory →
-            </button>
-          </div>
+          )}
+
+          {/* 3. Action Footer / Directory Link */}
+          {batchResult.inserted_count > 0 && (
+            <div className="p-5 bg-emerald-50/70 border border-emerald-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-lg bg-emerald-100 text-emerald-800">
+                  <FileCheck className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-emerald-900">
+                    {batchResult.inserted_count} New {batchResult.inserted_count === 1 ? 'Job Description' : 'Job Descriptions'} Ready
+                  </h4>
+                  <p className="text-xs text-emerald-700 mt-0.5">
+                    Inserted records are now stored in Supabase and available for candidate matching and evaluation.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => router.push('/dashboard/jobs')}
+                className="w-full sm:w-auto px-4 py-2 rounded-lg bg-emerald-700 text-white hover:bg-emerald-800 text-xs font-semibold shadow-xs cursor-pointer text-center"
+              >
+                View Jobs Directory →
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
