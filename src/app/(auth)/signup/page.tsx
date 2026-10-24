@@ -64,6 +64,11 @@ export default function SignupPage() {
         return;
       }
 
+      // Extra guarantee: write cookie client-side in case reverse-proxy stripped Set-Cookie headers
+      if (data?.token) {
+        document.cookie = `auth_token=${data.token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
+      }
+
       // Hard redirect guarantees the browser passes the new session cookie and bypasses stale RSC client cache
       window.location.href = '/dashboard';
     } catch (err: unknown) {

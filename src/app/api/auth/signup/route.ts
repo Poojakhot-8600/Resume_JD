@@ -85,7 +85,7 @@ export async function POST(request: Request) {
       role: user.role,
     });
 
-    // Set secure HTTP-only session cookie
+    // Set secure HTTP-only session cookie on both cookieStore and response
     const secure = isRequestSecure(request);
     const cookieStore = await cookies();
     cookieStore.set({
@@ -98,8 +98,9 @@ export async function POST(request: Request) {
       maxAge: 60 * 60 * 24 * 7, // 7 days
     });
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
+      token,
       user: {
         id: user.id,
         name: user.name,
@@ -107,6 +108,18 @@ export async function POST(request: Request) {
         role: user.role,
       },
     });
+
+    response.cookies.set({
+      name: 'auth_token',
+      value: token,
+      httpOnly: true,
+      secure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 7,
+    });
+
+    return response;
   } catch (error: any) {
     console.error('Custom Signup API error:', error);
     const detail = error?.message || 'An unexpected signup error occurred.';
