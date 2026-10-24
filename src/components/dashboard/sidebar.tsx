@@ -36,8 +36,7 @@ export function Sidebar({ user }: SidebarProps) {
     } catch (err) {
       console.error('Logout error:', err);
     }
-    router.push('/login');
-    router.refresh();
+    window.location.href = '/login';
   };
 
   return (

@@ -27,9 +27,12 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/dashboard/');
 
   if (isProtectedPath && !sessionUser) {
-    const redirectUrl = new URL('/login', request.url);
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = '/login';
     const response = NextResponse.redirect(redirectUrl);
-    response.cookies.delete('auth_token');
+    if (token) {
+      response.cookies.delete('auth_token');
+    }
     return response;
   }
 
@@ -38,12 +41,14 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/dashboard/team/');
 
   if (isAdminPath && (!sessionUser || sessionUser.role !== 'ADMIN')) {
-    const redirectUrl = new URL('/dashboard', request.url);
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = '/dashboard';
     return NextResponse.redirect(redirectUrl);
   }
 
   if (isAuthPath && sessionUser) {
-    const redirectUrl = new URL('/dashboard', request.url);
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = '/dashboard';
     return NextResponse.redirect(redirectUrl);
   }
 
@@ -55,8 +60,5 @@ export const config = {
     '/login',
     '/signup',
     '/dashboard/:path*',
-    '/jobs/:path*',
-    '/candidates/:path*',
-    '/results/:path*',
   ],
 };

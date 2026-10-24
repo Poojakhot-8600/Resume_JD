@@ -76,8 +76,8 @@ export default function LoginPage() {
         return;
       }
 
-      router.push('/dashboard');
-      router.refresh();
+      // Hard redirect guarantees the browser passes the new session cookie and bypasses stale RSC client cache
+      window.location.href = '/dashboard';
     } catch (err: unknown) {
       setErrorAlert(err instanceof Error ? err.message : 'Invalid email or password. Please try again.');
       setLoading(false);

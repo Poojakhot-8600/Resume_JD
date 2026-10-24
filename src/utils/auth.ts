@@ -31,6 +31,35 @@ export async function verifyJWT(token: string): Promise<TokenPayload | null> {
   }
 }
 
+export function isRequestSecure(request: Request): boolean {
+  // Explicit environment override: COOKIE_SECURE=false or COOKIE_SECURE=true
+  if (process.env.COOKIE_SECURE === 'true') return true;
+  if (process.env.COOKIE_SECURE === 'false') return false;
+
+  // Check reverse-proxy protocol header (standard for Nginx, Cloudflare, Hostinger, etc.)
+  const forwardedProto = request.headers.get('x-forwarded-proto');
+  if (forwardedProto) {
+    const proto = forwardedProto.split(',')[0].trim().toLowerCase();
+    if (proto === 'https') return true;
+    if (proto === 'http') return false;
+  }
+
+  // Check request URL protocol
+  try {
+    const url = new URL(request.url);
+    if (url.protocol === 'https:') return true;
+    if (url.protocol === 'http:') return false;
+  } catch { }
+
+  // Check NEXT_PUBLIC_APP_URL
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
+  if (appUrl.startsWith('https://')) return true;
+  if (appUrl.startsWith('http://')) return false;
+
+  // Fallback: only secure if production and not explicitly an http address
+  return process.env.NODE_ENV === 'production' && !appUrl.startsWith('http://');
+}
+
 export async function getCurrentUser() {
   try {
     const cookieStore = await cookies();
@@ -43,7 +72,7 @@ export async function getCurrentUser() {
 
     // Get active user data from the database
     try {
-      const user = await prisma.user.findUnique({
+      let user = await prisma.user.findUnique({
         where: { id: payload.id },
         select: {
           id: true,
@@ -53,18 +82,30 @@ export async function getCurrentUser() {
         },
       });
 
+      if (!user && payload.email) {
+        user = await prisma.user.findFirst({
+          where: { email: { equals: payload.email, mode: 'insensitive' } },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        });
+      }
+
       if (user) return user;
     } catch (dbError) {
       console.warn('Database lookup failed in getCurrentUser, falling back to token payload:', dbError);
-      return {
-        id: payload.id,
-        name: payload.name,
-        email: payload.email,
-        role: payload.role as any,
-      };
     }
 
-    return null;
+    // Fallback to verified token payload so authenticated user is never locked out
+    return {
+      id: payload.id,
+      name: payload.name,
+      email: payload.email,
+      role: payload.role as any,
+    };
   } catch (error) {
     console.error('Error resolving current session user:', error);
     return null;

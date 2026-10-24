@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/database/db';
-import { signJWT } from '@/utils/auth';
+import { signJWT, isRequestSecure } from '@/utils/auth';
 import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
 import * as z from 'zod';
@@ -86,12 +86,13 @@ export async function POST(request: Request) {
     });
 
     // Set secure HTTP-only session cookie
+    const secure = isRequestSecure(request);
     const cookieStore = await cookies();
     cookieStore.set({
       name: 'auth_token',
       value: token,
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure,
       sameSite: 'lax',
       path: '/',
       maxAge: 60 * 60 * 24 * 7, // 7 days
