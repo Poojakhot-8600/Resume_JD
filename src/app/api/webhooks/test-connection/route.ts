@@ -18,9 +18,8 @@ export async function POST(request: Request) {
       );
     }
 
-    let urlObj: URL;
     try {
-      urlObj = new URL(rawUrl);
+      new URL(rawUrl);
     } catch {
       return NextResponse.json(
         { success: false, message: `Invalid URL format: "${rawUrl}". Make sure it starts with http:// or https://.` },
@@ -34,76 +33,70 @@ export async function POST(request: Request) {
       source: 'Assess AI Webhook Diagnostic',
     };
 
-    const makeCall = async (target: string, timeoutMs = 8000) => {
-      const res = await fetch(target, {
+    try {
+      // redirect:'manual' so we detect HTTP→HTTPS redirects instead of silently
+      // following them (which converts POST to GET and causes n8n 404)
+      const res = await fetch(rawUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'User-Agent': 'AssessAI-Diagnostics/1.0',
         },
         body: JSON.stringify(testPayload),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(10000),
+        redirect: 'manual',
       });
-      const text = await res.text().catch(() => '');
-      return { status: res.status, statusText: res.statusText, text };
-    };
 
-    // 1. Try specified target URL
-    try {
-      const result = await makeCall(rawUrl);
-      
+      // Redirect response — POST body was NOT sent to the destination
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get('location') || '';
+        return NextResponse.json({
+          success: false,
+          status: res.status,
+          targetUrl: rawUrl,
+          redirectUrl: location,
+          isRedirect: true,
+          message: `Redirect detected (HTTP ${res.status}) — called: ${rawUrl}`,
+          suggestion: location
+            ? `Use "${location}" directly as your webhook URL to avoid POST→GET conversion.`
+            : 'Use the https:// URL directly to avoid POST→GET conversion.',
+        });
+      }
+
+      const text = await res.text().catch(() => '');
+
       let suggestion = '';
-      if (result.status === 404) {
-        suggestion = 'Server reached, but n8n returned 404. Make sure your workflow is toggled to Active / Published in n8n (or click "Listen for test event" if using a test webhook).';
-      } else if (result.status === 200 || result.status === 201) {
+      if (res.status === 404) {
+        suggestion = 'n8n returned 404. Make sure your workflow is toggled to Active (Published) in n8n.';
+      } else if (res.status === 200 || res.status === 201) {
         suggestion = 'Connection successful! Webhook is active and responding.';
       }
 
       return NextResponse.json({
-        success: result.status < 400,
-        status: result.status,
-        statusText: result.statusText,
-        message: `HTTP ${result.status}: ${result.statusText || 'OK'}`,
+        success: res.status < 400,
+        status: res.status,
+        statusText: res.statusText,
+        message: `HTTP ${res.status} from ${rawUrl}`,
         suggestion,
         targetUrl: rawUrl,
       });
-    } catch (primaryErr: any) {
-      const primaryCause = primaryErr.cause ? (primaryErr.cause.code || primaryErr.cause.message || String(primaryErr.cause)) : '';
-      const primaryMsg = primaryCause ? `${primaryErr.message} (${primaryCause})` : primaryErr.message;
+    } catch (err: any) {
+      const cause = err.cause ? (err.cause.code || err.cause.message || String(err.cause)) : '';
+      const detail = cause ? `${err.message} (${cause})` : err.message;
 
-      // 2. If it was HTTPS, check if HTTP works instead
-      if (rawUrl.startsWith('https://')) {
-        const httpFallback = rawUrl.replace(/^https:\/\//i, 'http://');
-        try {
-          const fallbackResult = await makeCall(httpFallback, 6000);
-          return NextResponse.json({
-            success: false,
-            targetUrl: rawUrl,
-            fallbackUrl: httpFallback,
-            isSslIssue: true,
-            status: fallbackResult.status,
-            message: `HTTPS connection to ${rawUrl} failed (${primaryMsg}), but HTTP connection to ${httpFallback} responded with HTTP ${fallbackResult.status}!`,
-            suggestion: `Your Hostinger VPS does not have SSL (port 443) active for this host. Switch your webhook URL to start with "http://" instead of "https://".`,
-          });
-        } catch {
-          // HTTP also failed
-        }
-      }
-
-      // 3. Construct helpful troubleshooting advice
-      let suggestion = 'Check if n8n is running and accessible.';
-      if (primaryCause === 'ECONNREFUSED' || primaryMsg.includes('ECONNREFUSED')) {
-        suggestion = 'Connection refused. n8n might not be listening on this port or host. If on the same VPS, try http://127.0.0.1:5678 or http://localhost:5678.';
-      } else if (primaryCause === 'ETIMEDOUT' || primaryMsg.includes('timeout') || primaryMsg.includes('ConnectTimeoutError')) {
-        suggestion = 'Connection timed out. Port may be closed or firewalled on your Hostinger VPS. If using HTTPS, port 443 might not be open. Try http:// or specify the correct n8n port.';
-      } else if (primaryCause === 'ENOTFOUND' || primaryMsg.includes('ENOTFOUND')) {
+      let suggestion = 'Check if n8n is running and the hostname/port are correct.';
+      if (cause === 'ECONNREFUSED' || detail.includes('ECONNREFUSED')) {
+        suggestion = 'Connection refused. n8n is not listening on this host/port.';
+      } else if (cause === 'ETIMEDOUT' || detail.includes('timeout') || detail.includes('ConnectTimeoutError')) {
+        suggestion = 'Connection timed out. Port may be firewalled or n8n is not running.';
+      } else if (cause === 'ENOTFOUND' || detail.includes('ENOTFOUND')) {
         suggestion = 'Domain name not found in DNS. Verify the hostname.';
       }
 
       return NextResponse.json({
         success: false,
         targetUrl: rawUrl,
-        message: `Failed to connect: ${primaryMsg}`,
+        message: `Failed to connect — called: ${rawUrl} — ${detail}`,
         suggestion,
       });
     }

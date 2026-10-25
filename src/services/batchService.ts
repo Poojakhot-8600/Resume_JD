@@ -436,11 +436,11 @@ export async function processCandidateBatchAsync(
     // Items that are expected to be newly inserted
     const newItems = resumesPayload.filter((r) => !knownDuplicates.has(r.file_name));
 
-    // 2. Dispatch to n8n webhook with automatic https->http fallback and detailed diagnostics
+    // 2. Dispatch to n8n webhook — use URL exactly as configured, no fallbacks
     let n8nResponseBody: any = null;
     let n8nHttpStatus = 200;
     let n8nError: string | null = null;
-    let targetUrl = webhookUrl.trim();
+    const targetUrl = webhookUrl.trim();
 
     const payload = {
       batch_id: batchId,
@@ -453,56 +453,46 @@ export async function processCandidateBatchAsync(
       callback_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/webhooks/n8n/batch-complete`,
     };
 
-    const sendRequest = async (url: string) => {
-      return await fetch(url, {
+    try {
+      // redirect: 'manual' prevents Node from silently following 301/302 redirects
+      // which would convert POST → GET and cause n8n to return 404
+      const n8nRes = await fetch(targetUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-webhook-secret': secret,
         },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(25000),
+        redirect: 'manual',
       });
-    };
 
-    try {
-      let n8nRes: Response;
-      try {
-        n8nRes = await sendRequest(targetUrl);
-      } catch (firstErr: any) {
-        // If HTTPS failed or timed out, auto-try HTTP if URL started with https://
-        if (targetUrl.startsWith('https://')) {
-          const fallbackUrl = targetUrl.replace(/^https:\/\//i, 'http://');
-          console.warn(`[Async Batch ${batchId}] HTTPS request to ${targetUrl} failed (${firstErr.message}). Retrying with HTTP fallback: ${fallbackUrl}`);
-          try {
-            n8nRes = await sendRequest(fallbackUrl);
-            targetUrl = fallbackUrl;
-          } catch {
-            throw firstErr;
-          }
-        } else {
-          throw firstErr;
+      // Detect HTTP→HTTPS redirects (301/302/307/308) before POST body is lost
+      if (n8nRes.status >= 300 && n8nRes.status < 400) {
+        const location = n8nRes.headers.get('location') || '';
+        n8nError = `Redirect detected (HTTP ${n8nRes.status}) from ${targetUrl}${
+          location ? ` → ${location}` : ''
+        }. Use the https:// URL directly to avoid POST→GET conversion.`;
+      } else {
+        n8nHttpStatus = n8nRes.status;
+        const rawText = await n8nRes.text();
+        try {
+          n8nResponseBody = JSON.parse(rawText);
+        } catch {
+          n8nResponseBody = rawText;
         }
-      }
 
-      n8nHttpStatus = n8nRes.status;
-      const rawText = await n8nRes.text();
-      try {
-        n8nResponseBody = JSON.parse(rawText);
-      } catch {
-        n8nResponseBody = rawText;
-      }
-
-      if (!n8nRes.ok) {
-        n8nError =
-          (typeof n8nResponseBody === 'object' && (n8nResponseBody?.message || n8nResponseBody?.error)) ||
-          `n8n returned HTTP status ${n8nRes.status} from ${targetUrl}`;
+        if (!n8nRes.ok) {
+          n8nError =
+            (typeof n8nResponseBody === 'object' && (n8nResponseBody?.message || n8nResponseBody?.error)) ||
+            `n8n returned HTTP ${n8nRes.status} from ${targetUrl}`;
+        }
       }
     } catch (fetchErr: any) {
       console.error(`[Async Batch ${batchId}] Fetch error connecting to n8n (${targetUrl}):`, fetchErr);
       const cause = fetchErr.cause ? (fetchErr.cause.message || fetchErr.cause.code || String(fetchErr.cause)) : '';
       const detail = cause ? `${fetchErr.message} (${cause})` : (fetchErr.message || 'Network error');
-      n8nError = `${detail} connecting to ${targetUrl}`;
+      n8nError = `${detail} — called: ${targetUrl}`;
     }
 
     // 3. If n8n failed or errored immediately
@@ -747,11 +737,11 @@ export async function processJobBatchAsync(
 
     const newItems = jobDescriptionsPayload.filter((j) => !knownDuplicates.has(j.file_name));
 
-    // 2. Dispatch to n8n webhook with automatic https->http fallback and detailed diagnostics
+    // 2. Dispatch to n8n webhook — use URL exactly as configured, no fallbacks
     let n8nResponseBody: any = null;
     let n8nHttpStatus = 200;
     let n8nError: string | null = null;
-    let targetUrl = webhookUrl.trim();
+    const targetUrl = webhookUrl.trim();
 
     const payload = {
       batch_id: batchId,
@@ -764,56 +754,46 @@ export async function processJobBatchAsync(
       callback_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/webhooks/n8n/batch-complete`,
     };
 
-    const sendRequest = async (url: string) => {
-      return await fetch(url, {
+    try {
+      // redirect: 'manual' prevents Node from silently following 301/302 redirects
+      // which would convert POST → GET and cause n8n to return 404
+      const n8nRes = await fetch(targetUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-webhook-secret': secret,
         },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(25000),
+        redirect: 'manual',
       });
-    };
 
-    try {
-      let n8nRes: Response;
-      try {
-        n8nRes = await sendRequest(targetUrl);
-      } catch (firstErr: any) {
-        // If HTTPS failed or timed out, auto-try HTTP if URL started with https://
-        if (targetUrl.startsWith('https://')) {
-          const fallbackUrl = targetUrl.replace(/^https:\/\//i, 'http://');
-          console.warn(`[Async Batch ${batchId}] HTTPS request to ${targetUrl} failed (${firstErr.message}). Retrying with HTTP fallback: ${fallbackUrl}`);
-          try {
-            n8nRes = await sendRequest(fallbackUrl);
-            targetUrl = fallbackUrl;
-          } catch {
-            throw firstErr;
-          }
-        } else {
-          throw firstErr;
+      // Detect HTTP→HTTPS redirects (301/302/307/308) before POST body is lost
+      if (n8nRes.status >= 300 && n8nRes.status < 400) {
+        const location = n8nRes.headers.get('location') || '';
+        n8nError = `Redirect detected (HTTP ${n8nRes.status}) from ${targetUrl}${
+          location ? ` → ${location}` : ''
+        }. Use the https:// URL directly to avoid POST→GET conversion.`;
+      } else {
+        n8nHttpStatus = n8nRes.status;
+        const rawText = await n8nRes.text();
+        try {
+          n8nResponseBody = JSON.parse(rawText);
+        } catch {
+          n8nResponseBody = rawText;
         }
-      }
 
-      n8nHttpStatus = n8nRes.status;
-      const rawText = await n8nRes.text();
-      try {
-        n8nResponseBody = JSON.parse(rawText);
-      } catch {
-        n8nResponseBody = rawText;
-      }
-
-      if (!n8nRes.ok) {
-        n8nError =
-          (typeof n8nResponseBody === 'object' && (n8nResponseBody?.message || n8nResponseBody?.error)) ||
-          `n8n returned HTTP status ${n8nRes.status} from ${targetUrl}`;
+        if (!n8nRes.ok) {
+          n8nError =
+            (typeof n8nResponseBody === 'object' && (n8nResponseBody?.message || n8nResponseBody?.error)) ||
+            `n8n returned HTTP ${n8nRes.status} from ${targetUrl}`;
+        }
       }
     } catch (fetchErr: any) {
       console.error(`[Async Batch ${batchId}] Fetch error connecting to n8n (${targetUrl}):`, fetchErr);
       const cause = fetchErr.cause ? (fetchErr.cause.message || fetchErr.cause.code || String(fetchErr.cause)) : '';
       const detail = cause ? `${fetchErr.message} (${cause})` : (fetchErr.message || 'Network error');
-      n8nError = `${detail} connecting to ${targetUrl}`;
+      n8nError = `${detail} — called: ${targetUrl}`;
     }
 
     // 3. If n8n failed or errored immediately
