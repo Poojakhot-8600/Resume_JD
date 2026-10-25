@@ -101,7 +101,7 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="h-14 border-t border-neutral-200 flex items-center justify-center text-[10px] text-neutral-400 font-semibold select-none bg-white">
-        &copy; {new Date().getFullYear()} Assess AI Recruitment Platform. Built for Enterprise.
+        &copy; {new Date().getFullYear()} Assess AI Recruitment Platform. Built for Enterprise.Lalit Khairnar .
       </footer>
     </div>
   );
