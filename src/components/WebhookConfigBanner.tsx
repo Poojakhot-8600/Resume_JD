@@ -42,10 +42,17 @@ export function WebhookConfigBanner({
     redirectUrl?: string;
   } | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  // isCustom must be set in useEffect — localStorage is not available on the server
+  const [isCustom, setIsCustom] = useState(false);
 
   useEffect(() => {
     setInputVal(currentUrl);
   }, [currentUrl]);
+
+  // Sync isCustom from localStorage after mount (SSR-safe)
+  useEffect(() => {
+    setIsCustom(Boolean(localStorage.getItem(storageKey)));
+  }, [storageKey]);
 
   const handleTest = async () => {
     const urlToTest = inputVal.trim() || currentUrl.trim();
@@ -93,6 +100,7 @@ export function WebhookConfigBanner({
     } else {
       localStorage.removeItem(storageKey);
     }
+    setIsCustom(Boolean(trimmed));
     onUrlChange(trimmed || envDefaultUrl);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
@@ -101,6 +109,7 @@ export function WebhookConfigBanner({
   // Reset clears localStorage override AND resets input to the .env default
   const handleReset = () => {
     localStorage.removeItem(storageKey);
+    setIsCustom(false);
     setInputVal(envDefaultUrl);
     onUrlChange(envDefaultUrl);
     setTestResult(null);
@@ -114,14 +123,13 @@ export function WebhookConfigBanner({
       const newUrl = testResult.redirectUrl;
       setInputVal(newUrl);
       localStorage.setItem(storageKey, newUrl);
+      setIsCustom(true);
       onUrlChange(newUrl);
       setTestResult(null);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
     }
   };
-
-  const isCustom = typeof window !== 'undefined' && Boolean(localStorage.getItem(storageKey));
 
   return (
     <div className="rounded-xl border border-neutral-200 bg-white shadow-xs overflow-hidden transition-all">
