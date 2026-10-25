@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/database/db';
-import { signJWT, isRequestSecure } from '@/utils/auth';
+import { signJWT, isRequestSecure, getAuthCookieOptions } from '@/utils/auth';
 import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
 import * as z from 'zod';
@@ -110,47 +110,49 @@ export async function POST(request: Request) {
       }).catch(() => {});
     }
 
-    // Sign session token payload for existing app routes
-    const token = await signJWT({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    });
+    // Record original login time (seconds)
+    const authTime = Math.floor(Date.now() / 1000);
 
-    // Set HTTP session cookie on both cookieStore and response directly
-    const secure = isRequestSecure(request);
-    const cookieStore = await cookies();
-    cookieStore.set({
-      name: 'auth_token',
-      value: token,
-      httpOnly: true,
-      secure,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-    });
-
-    const response = NextResponse.json({
-      success: true,
-      token,
-      user: {
+    // Sign session token with sliding idle timeout and original auth_time
+    const token = await signJWT(
+      {
         id: user.id,
         name: user.name,
         email: user.email,
         role: user.role,
+        auth_time: authTime,
       },
-    });
+      undefined,
+      authTime
+    );
 
-    response.cookies.set({
-      name: 'auth_token',
-      value: token,
-      httpOnly: true,
-      secure,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7,
-    });
+    // Standardized cookie options respecting COOKIE_SECURE / COOKIE_NAME / SameSite
+    const cookieOpts = getAuthCookieOptions(request);
+    const cookieStore = await cookies();
+    cookieStore.set(cookieOpts.name, token, cookieOpts);
+
+    const response = NextResponse.json(
+      {
+        success: true,
+        token,
+        auth_time: authTime,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
+    );
+
+    response.cookies.set(cookieOpts.name, token, cookieOpts);
 
     return response;
   } catch (error: any) {

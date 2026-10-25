@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Briefcase, Users, BarChart3, LogOut, UserCheck, Calendar, Settings } from 'lucide-react';
 import { AppstraxLogo } from '@/components/AppstraxLogo';
+import { logout } from '@/utils/session';
 
 interface SidebarProps {
   user: {
@@ -31,19 +32,8 @@ export function Sidebar({ user }: SidebarProps) {
     menuItems.push({ name: 'HR Team', href: '/dashboard/team', icon: UserCheck });
   }
 
-  const handleSignOut = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-    } catch (err) {
-      console.error('Logout error:', err);
-    } finally {
-      try {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('auth_user');
-      } catch {}
-      document.cookie = 'auth_token=; path=/; max-age=0; SameSite=Lax';
-      window.location.href = '/login';
-    }
+  const handleSignOut = () => {
+    logout('user');
   };
 
   return (

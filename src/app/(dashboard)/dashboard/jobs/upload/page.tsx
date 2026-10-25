@@ -63,6 +63,7 @@ interface BatchJDResult {
 import { UploadBatchResponse, UploadBatchStatusResponse, UploadRecordDetail } from '@/types';
 import { useBatchPolling } from '@/utils/useBatchPolling';
 import { WebhookConfigBanner } from '@/components/WebhookConfigBanner';
+import { apiFetch } from '@/utils/apiClient';
 
 export default function UploadJobDescriptionPage() {
   const router = useRouter();
@@ -123,7 +124,7 @@ export default function UploadJobDescriptionPage() {
     }
 
     // Always fetch the current .env webhook from the server
-    fetch('/api/settings/defaults')
+    apiFetch('/api/settings/defaults')
       .then((res) => res.json())
       .then((data) => {
         if (data?.envJdWebhook) {
@@ -427,14 +428,11 @@ export default function UploadJobDescriptionPage() {
       }
 
       // Submit to backend API route and receive batch_id plus processing status
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      const res = await fetch('/api/jobs/upload-jd-file', {
+      const res = await apiFetch('/api/jobs/upload-jd-file', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        credentials: 'include',
         body: JSON.stringify({
           job_descriptions: jobDescriptionsPayload,
           webhook_url: webhookUrl?.trim() || undefined,

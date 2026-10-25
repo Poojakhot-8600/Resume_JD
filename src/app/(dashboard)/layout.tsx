@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/utils/auth';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { Navbar } from '@/components/dashboard/navbar';
+import { SessionTimeoutManager } from '@/components/SessionTimeoutManager';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,15 +11,17 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const dbUser = (await getCurrentUser()) || {
-    id: 'seeded-admin-user-id',
-    name: 'System Admin',
-    email: 'admin@gmail.com',
-    role: 'ADMIN' as const,
-  };
+  const dbUser = await getCurrentUser();
+
+  if (!dbUser) {
+    redirect('/login?reason=expired');
+  }
 
   return (
     <div className="flex h-screen bg-neutral-50 font-sans antialiased text-neutral-900 overflow-hidden">
+      {/* 20-minute Idle Timeout and Warning Modal */}
+      <SessionTimeoutManager />
+
       {/* Recruiter Sidebar */}
       <Sidebar user={dbUser} />
 

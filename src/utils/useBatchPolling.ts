@@ -1,11 +1,13 @@
-'use client';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { UploadBatchStatusResponse } from '@/types';
+import { apiFetch } from '@/utils/apiClient';
+import {
+  registerActiveUpload,
+  unregisterActiveUpload,
+  registerCancellationCallback,
+} from '@/utils/session';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { BatchStatus, UploadBatchStatusResponse } from '@/types';
-
-export type PollingUIState = 'idle' | 'initiating' | 'processing' | 'completed' | 'completed_with_errors' | 'failed';
-
-interface UseBatchPollingOptions {
+export interface UseBatchPollingOptions {
   storageKey?: string;
   pollIntervalMs?: number;
   maxAttempts?: number;
@@ -13,26 +15,35 @@ interface UseBatchPollingOptions {
   onError?: (errorMessage: string) => void;
 }
 
+export type UploadUiState =
+  | 'idle'
+  | 'initiating'
+  | 'processing'
+  | 'completed'
+  | 'completed_with_errors'
+  | 'failed';
+
 export function useBatchPolling(options: UseBatchPollingOptions = {}) {
   const {
     storageKey,
-    pollIntervalMs = 1500,
-    maxAttempts = 40, // 40 * 1.5s = 60s timeout
+    pollIntervalMs = 2500,
+    maxAttempts = 40, // 40 * 2.5s = ~100s timeout window
     onCompleted,
     onError,
   } = options;
 
-  const [uiState, setUiState] = useState<PollingUIState>('idle');
+  const [uiState, setUiState] = useState<UploadUiState>('idle');
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
   const [batchResult, setBatchResult] = useState<UploadBatchStatusResponse | null>(null);
   const [pollingError, setPollingError] = useState<string | null>(null);
   const [isTimedOut, setIsTimedOut] = useState(false);
 
-  const abortControllerRef = useRef<AbortController | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const isPollingRef = useRef(false);
   const attemptCountRef = useRef(0);
   const consecutiveNetworkErrorsRef = useRef(0);
+  const currentBatchIdRef = useRef<string | null>(null);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -51,6 +62,10 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
   const resetPolling = useCallback(() => {
     clearTimer();
     abortActiveRequest();
+    if (currentBatchIdRef.current) {
+      unregisterActiveUpload(currentBatchIdRef.current);
+      currentBatchIdRef.current = null;
+    }
     isPollingRef.current = false;
     attemptCountRef.current = 0;
     consecutiveNetworkErrorsRef.current = 0;
@@ -74,21 +89,20 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
       abortControllerRef.current = controller;
 
       try {
-        const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-        const res = await fetch(`/api/batches/${encodeURIComponent(batchId)}`, {
+        // Use centralized apiFetch wrapper (handles 401 and AbortError globally)
+        const res = await apiFetch(`/api/batches/${encodeURIComponent(batchId)}`, {
           signal: controller.signal,
           headers: {
-            'Cache-Control': 'no-cache',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            'Cache-Control': 'no-cache, no-store',
           },
-          credentials: 'include',
         });
 
         consecutiveNetworkErrorsRef.current = 0;
 
         if (res.status === 404) {
-          // Batch not found in database
           isPollingRef.current = false;
+          unregisterActiveUpload(batchId);
+          currentBatchIdRef.current = null;
           setUiState('failed');
           const msg = `Batch "${batchId}" not found.`;
           setPollingError(msg);
@@ -101,10 +115,9 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
 
         if (res.status === 401 || res.status === 403) {
           isPollingRef.current = false;
+          unregisterActiveUpload(batchId);
+          currentBatchIdRef.current = null;
           setUiState('failed');
-          const msg = 'Unauthorized to access this upload batch.';
-          setPollingError(msg);
-          if (onError) onError(msg);
           return;
         }
 
@@ -112,12 +125,10 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
         try {
           data = await res.json();
         } catch {
-          // JSON parsing failure, retry on next tick
           console.warn('[useBatchPolling] Received unparseable JSON response.');
         }
 
         if (!data || typeof data !== 'object') {
-          // Malformed response, retry without declaring success or hard failure
           attemptCountRef.current += 1;
           isPollingRef.current = false;
           if (attemptCountRef.current < maxAttempts) {
@@ -131,15 +142,16 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
         if (currentStatus === 'processing' || currentStatus === 'pending') {
           attemptCountRef.current += 1;
 
+          // Keep active upload registered to immunize session from idle timeout
+          registerActiveUpload(batchId);
+
           if (attemptCountRef.current >= maxAttempts) {
-            // Polling timed out (taking longer than expected)
             isPollingRef.current = false;
             setIsTimedOut(true);
-            setUiState('processing'); // Do NOT mark failed unless confirmed by backend
+            setUiState('processing');
             return;
           }
 
-          // Continue polling while processing
           setUiState('processing');
           isPollingRef.current = false;
           timerRef.current = setTimeout(() => pollBatchStatus(batchId), pollIntervalMs);
@@ -151,7 +163,9 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
           currentStatus === 'completed_with_errors' ||
           currentStatus === 'failed'
         ) {
-          // Final status reached! Stop polling and display final counts
+          // Final status reached! Unregister active upload immunity
+          unregisterActiveUpload(batchId);
+          currentBatchIdRef.current = null;
           isPollingRef.current = false;
           setIsTimedOut(false);
           setBatchResult(data);
@@ -182,11 +196,9 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
         isPollingRef.current = false;
 
         if (consecutiveNetworkErrorsRef.current >= 5) {
-          // Show non-fatal connectivity warning, do not declare success
           setPollingError('Network connection issue while checking batch status. Will retry...');
         }
 
-        // Always retry after network glitch with backoff, never falsely declare success
         timerRef.current = setTimeout(
           () => pollBatchStatus(batchId),
           pollIntervalMs + Math.min(consecutiveNetworkErrorsRef.current * 1000, 5000)
@@ -204,6 +216,10 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
       attemptCountRef.current = 0;
       consecutiveNetworkErrorsRef.current = 0;
 
+      currentBatchIdRef.current = batchId;
+      // Immunize active session from idle timeout during upload processing
+      registerActiveUpload(batchId);
+
       setActiveBatchId(batchId);
       setUiState('processing');
       setIsTimedOut(false);
@@ -214,7 +230,6 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
         sessionStorage.setItem(storageKey, batchId);
       }
 
-      // Kick off first poll
       pollBatchStatus(batchId);
     },
     [clearTimer, abortActiveRequest, storageKey, pollBatchStatus]
@@ -230,7 +245,24 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
     }
   }, [activeBatchId, clearTimer, pollBatchStatus]);
 
-  // Page refresh recovery: check if active batch was saved in sessionStorage
+  // Hook into centralized logout cancellation
+  useEffect(() => {
+    const unregister = registerCancellationCallback(() => {
+      clearTimer();
+      abortActiveRequest();
+      if (currentBatchIdRef.current) {
+        unregisterActiveUpload(currentBatchIdRef.current);
+        currentBatchIdRef.current = null;
+      }
+      isPollingRef.current = false;
+    });
+
+    return () => {
+      unregister();
+    };
+  }, [clearTimer, abortActiveRequest]);
+
+  // Page refresh recovery & unmount cleanup
   useEffect(() => {
     if (storageKey && typeof window !== 'undefined') {
       const saved = sessionStorage.getItem(storageKey);
@@ -243,6 +275,10 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
     return () => {
       clearTimer();
       abortActiveRequest();
+      if (currentBatchIdRef.current) {
+        unregisterActiveUpload(currentBatchIdRef.current);
+        currentBatchIdRef.current = null;
+      }
     };
   }, [storageKey, startPolling, clearTimer, abortActiveRequest]);
 
