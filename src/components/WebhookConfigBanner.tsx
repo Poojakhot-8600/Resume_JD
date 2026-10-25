@@ -44,6 +44,11 @@ export function WebhookConfigBanner({
   const [saveSuccess, setSaveSuccess] = useState(false);
   // isCustom must be set in useEffect — localStorage is not available on the server
   const [isCustom, setIsCustom] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     setInputVal(currentUrl);
@@ -51,7 +56,9 @@ export function WebhookConfigBanner({
 
   // Sync isCustom from localStorage after mount (SSR-safe)
   useEffect(() => {
-    setIsCustom(Boolean(localStorage.getItem(storageKey)));
+    if (typeof window !== 'undefined') {
+      setIsCustom(Boolean(localStorage.getItem(storageKey)));
+    }
   }, [storageKey]);
 
   const handleTest = async () => {
@@ -131,6 +138,21 @@ export function WebhookConfigBanner({
     }
   };
 
+  const isTestWebhook = (inputVal || currentUrl || '').includes('/webhook-test/');
+
+  const handleFixTestToProduction = () => {
+    const fixed = (inputVal || currentUrl || '').replace('/webhook-test/', '/webhook/');
+    setInputVal(fixed);
+    if (isCustom) {
+      localStorage.setItem(storageKey, fixed);
+      setIsCustom(true);
+    }
+    onUrlChange(fixed);
+    setTestResult(null);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2000);
+  };
+
   return (
     <div className="rounded-xl border border-neutral-200 bg-white shadow-xs overflow-hidden transition-all">
       {/* Top Banner Row */}
@@ -142,7 +164,7 @@ export function WebhookConfigBanner({
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-semibold text-neutral-800">{title}</span>
-              {isCustom ? (
+              {mounted && isCustom ? (
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
                   Custom Override
                 </span>
@@ -151,14 +173,45 @@ export function WebhookConfigBanner({
                   From .env
                 </span>
               )}
+              {isTestWebhook && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-700 border border-red-200">
+                  Test URL (Inactive)
+                </span>
+              )}
             </div>
-            <p className="text-[11px] text-neutral-500 font-mono truncate max-w-md sm:max-w-xl">
+            <p
+              className="text-[11px] text-neutral-500 font-mono truncate max-w-md sm:max-w-xl"
+              suppressHydrationWarning
+            >
               {currentUrl || 'No webhook URL configured'}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {mounted && isCustom && (
+            <button
+              type="button"
+              onClick={handleReset}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors cursor-pointer"
+              title="Reset to .env value"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset to .env</span>
+            </button>
+          )}
+
+          {isTestWebhook && (
+            <button
+              type="button"
+              onClick={handleFixTestToProduction}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors cursor-pointer"
+              title="Switch from /webhook-test/ to /webhook/"
+            >
+              <span>Switch to /webhook/</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleTest}
@@ -183,6 +236,25 @@ export function WebhookConfigBanner({
           </button>
         </div>
       </div>
+
+      {/* Warning when URL uses /webhook-test/ */}
+      {isTestWebhook && (
+        <div className="px-4 py-2 bg-amber-50 text-amber-900 border-b border-amber-200 text-xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              <strong>Notice:</strong> Your URL contains <code className="font-mono text-amber-800 bg-amber-100 px-1 rounded">/webhook-test/</code>. In n8n, test URLs only work when the workflow editor is open and you clicked "Listen for test event". For standard uploads, use <code className="font-mono text-indigo-700 bg-indigo-50 px-1 rounded">/webhook/</code> and ensure the workflow is <strong>Active</strong>.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleFixTestToProduction}
+            className="shrink-0 px-2.5 py-1 bg-amber-700 hover:bg-amber-800 text-white rounded font-medium text-[11px] transition-colors cursor-pointer"
+          >
+            Use /webhook/
+          </button>
+        </div>
+      )}
 
       {/* Test Result Message Bar */}
       {testResult && (
@@ -260,7 +332,7 @@ export function WebhookConfigBanner({
               )}
             </div>
             <p className="text-[11px] text-neutral-400">
-              Saved in browser localStorage. Click <strong>Reset</strong> to clear and fall back to the server .env value.
+              Saved in browser localStorage. Click <strong>Reset to .env</strong> to clear and fall back to the server .env value.
             </p>
           </div>
 
