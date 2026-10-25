@@ -64,8 +64,14 @@ export default function SignupPage() {
         return;
       }
 
-      // Extra guarantee: write cookie client-side in case reverse-proxy stripped Set-Cookie headers
+      // Extra guarantee: write cookie client-side and save to localStorage
       if (data?.token) {
+        try {
+          localStorage.setItem('auth_token', data.token);
+          if (data.user) {
+            localStorage.setItem('auth_user', JSON.stringify(data.user));
+          }
+        } catch {}
         document.cookie = `auth_token=${data.token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
       }
 

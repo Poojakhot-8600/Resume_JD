@@ -35,8 +35,14 @@ export function Sidebar({ user }: SidebarProps) {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch (err) {
       console.error('Logout error:', err);
+    } finally {
+      try {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_user');
+      } catch {}
+      document.cookie = 'auth_token=; path=/; max-age=0; SameSite=Lax';
+      window.location.href = '/login';
     }
-    window.location.href = '/login';
   };
 
   return (

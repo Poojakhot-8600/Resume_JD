@@ -11,8 +11,8 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const dbUser = (await getCurrentUser()) || {
-    id: 'admin-user-id',
-    name: 'Admin User',
+    id: 'seeded-admin-user-id',
+    name: 'System Admin',
     email: 'admin@gmail.com',
     role: 'ADMIN' as const,
   };

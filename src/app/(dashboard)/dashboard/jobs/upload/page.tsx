@@ -421,11 +421,14 @@ export default function UploadJobDescriptionPage() {
       }
 
       // Submit to backend API route and receive batch_id plus processing status
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
       const res = await fetch('/api/jobs/upload-jd-file', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
+        credentials: 'include',
         body: JSON.stringify({
           job_descriptions: jobDescriptionsPayload,
         }),

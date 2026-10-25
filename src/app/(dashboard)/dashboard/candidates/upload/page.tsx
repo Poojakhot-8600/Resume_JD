@@ -232,11 +232,14 @@ export default function UploadCandidateResumePage() {
       }
 
       // 2. Submit to backend API route and receive batch_id plus processing status
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
       const res = await fetch('/api/candidates/upload-resume', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
+        credentials: 'include',
         body: JSON.stringify({
           resumes: resumesPayload,
         }),

@@ -74,9 +74,14 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
       abortControllerRef.current = controller;
 
       try {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
         const res = await fetch(`/api/batches/${encodeURIComponent(batchId)}`, {
           signal: controller.signal,
-          headers: { 'Cache-Control': 'no-cache' },
+          headers: {
+            'Cache-Control': 'no-cache',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          credentials: 'include',
         });
 
         consecutiveNetworkErrorsRef.current = 0;
