@@ -29,6 +29,7 @@ import {
 import { extractTextFromClientFile, extractPdfTextInBrowser, validateExtractedPdfText } from '@/utils/clientPdfParser';
 import { UploadBatchResponse, UploadBatchStatusResponse, UploadRecordDetail } from '@/types';
 import { useBatchPolling } from '@/utils/useBatchPolling';
+import { WebhookConfigBanner } from '@/components/WebhookConfigBanner';
 
 export default function UploadCandidateResumePage() {
   const router = useRouter();
@@ -44,6 +45,9 @@ export default function UploadCandidateResumePage() {
   const [showManualInput, setShowManualInput] = useState(false);
   const [expandedFileIdx, setExpandedFileIdx] = useState<number | null>(null);
   const [copiedTextIdx, setCopiedTextIdx] = useState<number | null>(null);
+  const [envDefaultWebhook, setEnvDefaultWebhook] = useState<string>(
+    process.env.NEXT_PUBLIC_N8N_CANDIDATE_RESUME_WEBHOOK_URL || 'https://pooja456.app.n8n.cloud/webhook-test/resume-insert'
+  );
   const [webhookUrl, setWebhookUrl] = useState<string>(
     process.env.NEXT_PUBLIC_N8N_CANDIDATE_RESUME_WEBHOOK_URL || 'https://pooja456.app.n8n.cloud/webhook-test/resume-insert'
   );
@@ -82,15 +86,17 @@ export default function UploadCandidateResumePage() {
     const saved = localStorage.getItem('n8n_candidate_webhook_url');
     if (saved && saved.trim()) {
       setWebhookUrl(saved.trim());
-      return;
     }
 
-    // Otherwise fetch the current .env webhook from the server
+    // Always fetch the current .env webhook from the server
     fetch('/api/settings/defaults')
       .then((res) => res.json())
       .then((data) => {
         if (data?.envCandidateWebhook) {
-          setWebhookUrl(data.envCandidateWebhook);
+          setEnvDefaultWebhook(data.envCandidateWebhook);
+          if (!saved || !saved.trim()) {
+            setWebhookUrl(data.envCandidateWebhook);
+          }
         }
       })
       .catch((err) => console.error('Failed to fetch Candidate webhook from settings:', err));
@@ -242,6 +248,7 @@ export default function UploadCandidateResumePage() {
         credentials: 'include',
         body: JSON.stringify({
           resumes: resumesPayload,
+          webhook_url: webhookUrl?.trim() || undefined,
         }),
       });
 
@@ -301,6 +308,15 @@ export default function UploadCandidateResumePage() {
           </button>
         </div>
       </div>
+
+      {/* Webhook Configuration & Diagnostic Banner */}
+      <WebhookConfigBanner
+        title="Candidate Resume n8n Webhook"
+        storageKey="n8n_candidate_webhook_url"
+        currentUrl={webhookUrl}
+        onUrlChange={setWebhookUrl}
+        envDefaultUrl={envDefaultWebhook}
+      />
 
       {/* Error Banner */}
       {error && (

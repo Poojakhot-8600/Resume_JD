@@ -436,29 +436,54 @@ export async function processCandidateBatchAsync(
     // Items that are expected to be newly inserted
     const newItems = resumesPayload.filter((r) => !knownDuplicates.has(r.file_name));
 
-    // 2. Dispatch to n8n webhook
+    // 2. Dispatch to n8n webhook with automatic https->http fallback and detailed diagnostics
     let n8nResponseBody: any = null;
     let n8nHttpStatus = 200;
     let n8nError: string | null = null;
+    let targetUrl = webhookUrl.trim();
 
-    try {
-      const n8nRes = await fetch(webhookUrl, {
+    const payload = {
+      batch_id: batchId,
+      batchId: batchId,
+      user_id: userId || 'system',
+      userId: userId || 'system',
+      created_by: userId || 'system',
+      createdBy: userId || 'system',
+      resumes: resumesPayload,
+      callback_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/webhooks/n8n/batch-complete`,
+    };
+
+    const sendRequest = async (url: string) => {
+      return await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-webhook-secret': secret,
         },
-        body: JSON.stringify({
-          batch_id: batchId,
-          batchId: batchId,
-          user_id: userId || 'system',
-          userId: userId || 'system',
-          created_by: userId || 'system',
-          createdBy: userId || 'system',
-          resumes: resumesPayload,
-          callback_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/webhooks/n8n/batch-complete`,
-        }),
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(20000),
       });
+    };
+
+    try {
+      let n8nRes: Response;
+      try {
+        n8nRes = await sendRequest(targetUrl);
+      } catch (firstErr: any) {
+        // If HTTPS failed or timed out, auto-try HTTP if URL started with https://
+        if (targetUrl.startsWith('https://')) {
+          const fallbackUrl = targetUrl.replace(/^https:\/\//i, 'http://');
+          console.warn(`[Async Batch ${batchId}] HTTPS request to ${targetUrl} failed (${firstErr.message}). Retrying with HTTP fallback: ${fallbackUrl}`);
+          try {
+            n8nRes = await sendRequest(fallbackUrl);
+            targetUrl = fallbackUrl;
+          } catch {
+            throw firstErr;
+          }
+        } else {
+          throw firstErr;
+        }
+      }
 
       n8nHttpStatus = n8nRes.status;
       const rawText = await n8nRes.text();
@@ -471,11 +496,13 @@ export async function processCandidateBatchAsync(
       if (!n8nRes.ok) {
         n8nError =
           (typeof n8nResponseBody === 'object' && (n8nResponseBody?.message || n8nResponseBody?.error)) ||
-          `n8n returned HTTP status ${n8nRes.status}`;
+          `n8n returned HTTP status ${n8nRes.status} from ${targetUrl}`;
       }
     } catch (fetchErr: any) {
-      console.error(`[Async Batch ${batchId}] Fetch error connecting to n8n:`, fetchErr);
-      n8nError = fetchErr.message || 'Network error connecting to n8n webhook';
+      console.error(`[Async Batch ${batchId}] Fetch error connecting to n8n (${targetUrl}):`, fetchErr);
+      const cause = fetchErr.cause ? (fetchErr.cause.message || fetchErr.cause.code || String(fetchErr.cause)) : '';
+      const detail = cause ? `${fetchErr.message} (${cause})` : (fetchErr.message || 'Network error');
+      n8nError = `${detail} connecting to ${targetUrl}`;
     }
 
     // 3. If n8n failed or errored immediately
@@ -720,29 +747,54 @@ export async function processJobBatchAsync(
 
     const newItems = jobDescriptionsPayload.filter((j) => !knownDuplicates.has(j.file_name));
 
-    // 2. Dispatch to n8n webhook
+    // 2. Dispatch to n8n webhook with automatic https->http fallback and detailed diagnostics
     let n8nResponseBody: any = null;
     let n8nHttpStatus = 200;
     let n8nError: string | null = null;
+    let targetUrl = webhookUrl.trim();
 
-    try {
-      const n8nRes = await fetch(webhookUrl, {
+    const payload = {
+      batch_id: batchId,
+      batchId: batchId,
+      user_id: userId || 'system',
+      userId: userId || 'system',
+      created_by: userId || 'system',
+      createdBy: userId || 'system',
+      job_descriptions: jobDescriptionsPayload,
+      callback_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/webhooks/n8n/batch-complete`,
+    };
+
+    const sendRequest = async (url: string) => {
+      return await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-webhook-secret': secret,
         },
-        body: JSON.stringify({
-          batch_id: batchId,
-          batchId: batchId,
-          user_id: userId || 'system',
-          userId: userId || 'system',
-          created_by: userId || 'system',
-          createdBy: userId || 'system',
-          job_descriptions: jobDescriptionsPayload,
-          callback_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/webhooks/n8n/batch-complete`,
-        }),
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(20000),
       });
+    };
+
+    try {
+      let n8nRes: Response;
+      try {
+        n8nRes = await sendRequest(targetUrl);
+      } catch (firstErr: any) {
+        // If HTTPS failed or timed out, auto-try HTTP if URL started with https://
+        if (targetUrl.startsWith('https://')) {
+          const fallbackUrl = targetUrl.replace(/^https:\/\//i, 'http://');
+          console.warn(`[Async Batch ${batchId}] HTTPS request to ${targetUrl} failed (${firstErr.message}). Retrying with HTTP fallback: ${fallbackUrl}`);
+          try {
+            n8nRes = await sendRequest(fallbackUrl);
+            targetUrl = fallbackUrl;
+          } catch {
+            throw firstErr;
+          }
+        } else {
+          throw firstErr;
+        }
+      }
 
       n8nHttpStatus = n8nRes.status;
       const rawText = await n8nRes.text();
@@ -755,11 +807,13 @@ export async function processJobBatchAsync(
       if (!n8nRes.ok) {
         n8nError =
           (typeof n8nResponseBody === 'object' && (n8nResponseBody?.message || n8nResponseBody?.error)) ||
-          `n8n returned HTTP status ${n8nRes.status}`;
+          `n8n returned HTTP status ${n8nRes.status} from ${targetUrl}`;
       }
     } catch (fetchErr: any) {
-      console.error(`[Async Batch ${batchId}] Fetch error connecting to n8n:`, fetchErr);
-      n8nError = fetchErr.message || 'Network error connecting to n8n webhook';
+      console.error(`[Async Batch ${batchId}] Fetch error connecting to n8n (${targetUrl}):`, fetchErr);
+      const cause = fetchErr.cause ? (fetchErr.cause.message || fetchErr.cause.code || String(fetchErr.cause)) : '';
+      const detail = cause ? `${fetchErr.message} (${cause})` : (fetchErr.message || 'Network error');
+      n8nError = `${detail} connecting to ${targetUrl}`;
     }
 
     // 3. If n8n failed or errored immediately

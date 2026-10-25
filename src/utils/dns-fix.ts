@@ -26,8 +26,9 @@ if (typeof process !== 'undefined' && process.env?.NEXT_RUNTIME !== 'edge') {
         opts = { family: opts };
       }
 
-        // Resolve IPv4 for external hosts (Supabase, n8n.cloud, etc.) that fail on Windows NAT64 IPv6
+        // Resolve IPv4 for external hosts on Windows that fail on Windows NAT64 IPv6
         if (
+          process.platform === 'win32' &&
           typeof hostname === 'string' &&
           hostname !== 'localhost' &&
           !hostname.endsWith('.local') &&
@@ -39,7 +40,7 @@ if (typeof process !== 'undefined' && process.env?.NEXT_RUNTIME !== 'edge') {
               if (opts && opts.all) {
                 return cb(
                   null,
-                  addresses.map((a) => ({ address: a, family: 4 }))
+                  addresses.map((a: string) => ({ address: a, family: 4 }))
                 );
               }
               return cb(null, addresses[0], 4);
