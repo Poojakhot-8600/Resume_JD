@@ -13,8 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Assess AI - Recruitment Assessment Platform",
-  description: "AI-powered technical recruiting assessment platform",
+  title: "AppstraxGlobal - Recruitment Assessment Platform",
+  description: "AI-powered technical recruiting assessment platform - Apps Without Borders",
+  icons: {
+    icon: "/logo-icon.svg",
+  },
 };
 
 export default function RootLayout({

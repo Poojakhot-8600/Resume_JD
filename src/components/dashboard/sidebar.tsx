@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Briefcase, Users, BarChart3, LogOut, UserCheck, Calendar, Settings } from 'lucide-react';
+import { AppstraxLogo } from '@/components/AppstraxLogo';
 
 interface SidebarProps {
   user: {
@@ -48,12 +49,9 @@ export function Sidebar({ user }: SidebarProps) {
   return (
     <div className="w-64 border-r border-neutral-200 bg-white flex flex-col h-full text-neutral-900 select-none">
       {/* Brand Header */}
-      <div className="h-16 border-b border-neutral-200 flex items-center px-6">
-        <Link href="/dashboard" className="flex items-center gap-2 font-bold tracking-tight text-neutral-900">
-          <div className="h-6 w-6 bg-linear-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white text-xs font-semibold rounded-sm">
-            R
-          </div>
-          <span className="text-sm font-semibold tracking-wide uppercase text-indigo-900">Assess AI</span>
+      <div className="h-16 border-b border-neutral-200 flex items-center px-5">
+        <Link href="/dashboard" className="flex items-center hover:opacity-90 transition-opacity">
+          <AppstraxLogo variant="full" size="sm" />
         </Link>
       </div>
 

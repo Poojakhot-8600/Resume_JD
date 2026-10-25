@@ -1,18 +1,16 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Briefcase, ShieldCheck, Mail, Cpu, ArrowRight } from 'lucide-react';
+import { AppstraxLogo } from '@/components/AppstraxLogo';
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-neutral-50 flex flex-col font-sans antialiased text-neutral-900 selection:bg-neutral-950 selection:text-white">
       {/* Top Navbar */}
       <header className="h-16 border-b border-neutral-200 bg-white flex items-center justify-between px-6 md:px-16 select-none shrink-0">
-        <div className="flex items-center gap-2 font-bold tracking-tight text-neutral-900">
-          <div className="h-6 w-6 bg-linear-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white text-xs font-semibold rounded-sm">
-            R
-          </div>
-          <span className="text-sm font-semibold tracking-wide uppercase text-indigo-900">Assess AI</span>
-        </div>
+        <Link href="/" className="hover:opacity-90 transition-opacity">
+          <AppstraxLogo variant="full" size="sm" />
+        </Link>
         <div className="flex items-center gap-3">
           <Link href="/login">
             <Button variant="ghost" size="sm" className="cursor-pointer text-xs">
@@ -101,7 +99,7 @@ export default function LandingPage() {
 
       {/* Footer */}
       <footer className="h-14 border-t border-neutral-200 flex items-center justify-center text-[10px] text-neutral-400 font-semibold select-none bg-white">
-        &copy; {new Date().getFullYear()} Assess AI Recruitment Platform. Built for Enterprise.Lalit Khairnar .
+        &copy; {new Date().getFullYear()} AppstraxGlobal &middot; Apps Without Borders. All rights reserved.
       </footer>
     </div>
   );
