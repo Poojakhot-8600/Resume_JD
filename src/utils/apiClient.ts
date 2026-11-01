@@ -69,9 +69,9 @@ export async function apiFetch(
 
     // Global 401 Interception (Requirement 6)
     if (response.status === 401) {
-      // Don't trigger logout if the call itself was the login endpoint failing with bad password
+      // Don't trigger logout if the call itself was an auth endpoint (login/signup) failing
       const urlStr = typeof input === 'string' ? input : input.toString();
-      if (!urlStr.includes('/api/auth/login')) {
+      if (!urlStr.includes('/api/auth/login') && !urlStr.includes('/api/auth/signup')) {
         console.warn('[apiClient] 401 Unauthorized received from', urlStr, '— triggering logout');
         await logout('expired');
       }

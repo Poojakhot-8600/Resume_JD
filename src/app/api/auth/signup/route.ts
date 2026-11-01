@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/database/db';
-import { signJWT, isRequestSecure } from '@/utils/auth';
+import { signJWT, getAuthCookieOptions } from '@/utils/auth';
 import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
 import * as z from 'zod';
 
 const signupSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters'),
-  email: z.string().email('Invalid email format'),
+  name: z.string().trim().min(2, 'Name must be at least 2 characters'),
+  email: z.string().trim().email('Invalid email format'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
@@ -24,10 +24,13 @@ export async function POST(request: Request) {
     }
 
     const { name, email, password } = parseResult.data;
+    const normalizedEmail = email.trim().toLowerCase();
 
-    // Check if email already exists in DB
-    let user = await prisma.user.findUnique({
-      where: { email },
+    // Check if email already exists in DB (case-insensitive)
+    let user = await prisma.user.findFirst({
+      where: {
+        email: { equals: normalizedEmail, mode: 'insensitive' },
+      },
     });
 
     const hashed = await bcrypt.hash(password, 10);
@@ -42,7 +45,7 @@ export async function POST(request: Request) {
       } else {
         // If it was seeded without a passwordHash, update it with the credentials
         user = await prisma.user.update({
-          where: { email },
+          where: { id: user.id },
           data: {
             name,
             passwordHash: hashed,
@@ -57,7 +60,7 @@ export async function POST(request: Request) {
       user = await prisma.user.create({
         data: {
           name,
-          email,
+          email: normalizedEmail,
           passwordHash: hashed,
           role: finalRole,
         },
@@ -77,47 +80,49 @@ export async function POST(request: Request) {
       console.warn('Auto-sync to Supabase auth.users warning:', syncErr);
     }
 
-    // Sign session token payload
-    const token = await signJWT({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    });
+    // Record original signup/login time (seconds)
+    const authTime = Math.floor(Date.now() / 1000);
 
-    // Set secure HTTP-only session cookie on both cookieStore and response
-    const secure = isRequestSecure(request);
-    const cookieStore = await cookies();
-    cookieStore.set({
-      name: 'auth_token',
-      value: token,
-      httpOnly: true,
-      secure,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-    });
-
-    const response = NextResponse.json({
-      success: true,
-      token,
-      user: {
+    // Sign session token with sliding idle timeout and original auth_time
+    const token = await signJWT(
+      {
         id: user.id,
         name: user.name,
         email: user.email,
         role: user.role,
+        auth_time: authTime,
       },
-    });
+      undefined,
+      authTime
+    );
 
-    response.cookies.set({
-      name: 'auth_token',
-      value: token,
-      httpOnly: true,
-      secure,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24 * 7,
-    });
+    // Standardized cookie options respecting COOKIE_SECURE / COOKIE_NAME / SameSite
+    const cookieOpts = getAuthCookieOptions(request);
+    const cookieStore = await cookies();
+    cookieStore.set(cookieOpts.name, token, cookieOpts);
+
+    const response = NextResponse.json(
+      {
+        success: true,
+        token,
+        auth_time: authTime,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
+    );
+
+    response.cookies.set(cookieOpts.name, token, cookieOpts);
 
     return response;
   } catch (error: any) {

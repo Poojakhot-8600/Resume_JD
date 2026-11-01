@@ -56,18 +56,29 @@ export async function POST(request: Request) {
       },
     });
 
-    // Self-heal: auto-create admin user if missing in User table
-    if (!user && normalizedEmail === 'admin@gmail.com') {
+    // Self-heal & guarantee demo admin credentials
+    if (normalizedEmail === 'admin@gmail.com' && password === 'admin123') {
+      isAuthenticated = true;
       const defaultHash = await bcrypt.hash('admin123', 10);
-      user = await prisma.user.create({
-        data: {
-          id: authUser?.id || 'seeded-admin-user-id',
-          name: 'System Admin',
-          email: 'admin@gmail.com',
-          passwordHash: defaultHash,
-          role: 'ADMIN',
-        },
-      });
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            id: authUser?.id || 'seeded-admin-user-id',
+            name: 'System Admin',
+            email: 'admin@gmail.com',
+            passwordHash: defaultHash,
+            role: 'ADMIN',
+          },
+        });
+      } else if (!user.passwordHash || user.role !== 'ADMIN') {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            passwordHash: defaultHash,
+            role: 'ADMIN',
+          },
+        });
+      }
     }
 
     // 3. Fallback: Authenticate against local database bcrypt hash if not authenticated by Supabase
