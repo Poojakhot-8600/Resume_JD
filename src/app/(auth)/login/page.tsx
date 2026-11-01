@@ -92,6 +92,7 @@ function LoginForm() {
         body: JSON.stringify(values),
         credentials: 'include',
       });
+      console.log("auth login ...", res);
 
       const data = await readJsonResponse(res);
 
@@ -121,7 +122,7 @@ function LoginForm() {
             data.auth_time ? (data.auth_time * 1000).toString() : now.toString()
           );
           sessionStorage.clear();
-        } catch {}
+        } catch { }
       }
 
       // Hard redirect guarantees browser loads new session cookie and bypasses stale RSC client cache
@@ -146,11 +147,10 @@ function LoginForm() {
         {/* Session Status Banner (Timeout / Expired) */}
         {statusMsg && (
           <div
-            className={`mb-4 p-3 rounded-lg text-xs flex items-start gap-2.5 leading-relaxed border ${
-              statusMsg.type === 'warning'
+            className={`mb-4 p-3 rounded-lg text-xs flex items-start gap-2.5 leading-relaxed border ${statusMsg.type === 'warning'
                 ? 'bg-amber-50 border-amber-200 text-amber-900'
                 : 'bg-indigo-50 border-indigo-200 text-indigo-900'
-            }`}
+              }`}
           >
             <Info className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
             <span className="font-semibold">{statusMsg.text}</span>

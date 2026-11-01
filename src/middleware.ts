@@ -13,6 +13,7 @@ function getSecretKey(): Uint8Array {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  console.log(pathname);
 
   // 1. Extract session token from cookie or Authorization header
   let token = request.cookies.get(COOKIE_NAME)?.value;

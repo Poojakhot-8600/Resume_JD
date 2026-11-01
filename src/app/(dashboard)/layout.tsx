@@ -12,6 +12,7 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const dbUser = await getCurrentUser();
+  console.log("db user..", dbUser);
 
   if (!dbUser) {
     redirect('/login?reason=expired');
