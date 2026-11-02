@@ -224,7 +224,7 @@ export default function SettingsPage() {
               ) : (
                 <div className="flex items-center gap-2 text-neutral-400">
                   <span className="h-2 w-2 rounded-full bg-neutral-300" />
-                  <span className="text-xs italic font-medium">Inactive (Local Mock Active)</span>
+                  <span className="text-xs italic font-medium">Inactive (Not Configured)</span>
                 </div>
               )}
             </div>

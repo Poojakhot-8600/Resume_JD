@@ -41,6 +41,7 @@ export function Sidebar({ user }: SidebarProps) {
         localStorage.removeItem('auth_user');
       } catch {}
       document.cookie = 'auth_token=; path=/; max-age=0; SameSite=Lax';
+      document.cookie = 'refresh_token=; path=/; max-age=0; SameSite=Lax';
       window.location.href = '/login';
     }
   };

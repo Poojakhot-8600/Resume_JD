@@ -21,7 +21,7 @@ export async function GET(
     // Enforce multi-tenant access control (IDOR protection)
     await assertJobOwnership(positionId, user);
 
-    let job = await prisma.job.findUnique({
+    const job = await prisma.job.findUnique({
       where: { id: positionId },
       include: {
         questions: {
@@ -40,32 +40,6 @@ export async function GET(
 
     if (!job) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
-    }
-
-    // On-the-fly mock generator fallback if the job is empty/processing and no n8n webhook is active
-    const webhookUrl = process.env.N8N_JD_WEBHOOK_URL;
-    if ((job.status === 'PROCESSING' || job.questions.length === 0) && !webhookUrl) {
-      console.log(`[API jobs/[id]] Auto-generating mock evaluations for existing job: ${id}`);
-      const { generateMockDataForJob } = await import('@/utils/mockGenerator');
-      await generateMockDataForJob(job.id, job.title || '', job.experience || 'Not Specified');
-
-      // Refetch populated job record
-      job = (await prisma.job.findUnique({
-        where: { id: positionId },
-        include: {
-          questions: {
-            orderBy: { topic: 'asc' },
-          },
-          candidates: {
-            include: {
-              assessments: true,
-            },
-          },
-          _count: {
-            select: { candidates: true },
-          },
-        },
-      })) as any;
     }
 
     return NextResponse.json(serializeBigInt({ success: true, job }));

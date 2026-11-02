@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/utils/auth';
 import { prisma } from '@/database/db';
-import { generateMockDataForJob } from '@/utils/mockGenerator';
 import { serializeBigInt } from '@/utils/serialize';
 
 export async function POST(req: Request) {
@@ -94,8 +93,6 @@ export async function POST(req: Request) {
         },
       });
 
-      // Synchronously generate mock questions & evaluation answers
-      await generateMockDataForJob(dbJob.id, dbJob.title || '', dbJob.experience || 'Not Specified');
       createdCount.push(dbJob.id);
     }
 
