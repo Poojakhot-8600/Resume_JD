@@ -15,12 +15,12 @@ export default function LandingPage() {
         </div>
         <div className="flex items-center gap-3">
           <Link href="/login">
-            <Button variant="ghost" size="sm" className="cursor-pointer text-xs">
-              Recruiter Log In
+            <Button variant="ghost" size="sm" className="cursor-pointer text-xs font-medium text-neutral-700 hover:text-neutral-900">
+              Sign In
             </Button>
           </Link>
           <Link href="/signup">
-            <Button size="sm" className="cursor-pointer text-xs">
+            <Button size="sm" className="cursor-pointer text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs">
               Get Started
             </Button>
           </Link>
@@ -30,8 +30,9 @@ export default function LandingPage() {
       {/* Hero Section */}
       <main className="flex-1 flex flex-col items-center justify-center py-20 px-6 max-w-5xl mx-auto text-center space-y-10">
         <div className="space-y-4">
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-sm text-[10px] font-bold bg-linear-to-r from-indigo-600 to-violet-600 text-white uppercase tracking-wider select-none">
-            Enterprise Grade SaaS
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-indigo-50 border border-indigo-200/60 text-indigo-700 uppercase tracking-wider select-none shadow-2xs">
+            <span className="h-1.5 w-1.5 rounded-full bg-indigo-600 animate-pulse" />
+            Enterprise Assessment Platform
           </span>
           <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-neutral-900 leading-tight max-w-3xl">
             Evaluate Technical Candidates with Precision AI Assessments
@@ -44,14 +45,14 @@ export default function LandingPage() {
         {/* CTA Buttons */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link href="/signup">
-            <Button size="lg" className="min-w-56 cursor-pointer flex items-center justify-center gap-2 shadow-sm hover:shadow transition-all">
-              <span>Create Recruiter Space</span>
+            <Button size="lg" className="min-w-56 cursor-pointer flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm hover:shadow transition-all font-semibold">
+              <span>Get Started Free</span>
               <ArrowRight className="h-4 w-4" />
             </Button>
           </Link>
           <Link href="/login">
-            <Button size="lg" variant="outline" className="min-w-56 cursor-pointer justify-center shadow-xs hover:bg-neutral-50 transition-all">
-              Recruiter Dashboard
+            <Button size="lg" variant="outline" className="min-w-56 cursor-pointer justify-center shadow-2xs hover:bg-neutral-100 transition-all font-medium border-neutral-300">
+              Sign In to Platform
             </Button>
           </Link>
         </div>

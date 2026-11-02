@@ -37,7 +37,7 @@ export async function POST(request: Request) {
 
     const { jobs, duplicateStrategy, customWebhookUrl } = validation.data;
 
-    const secret = process.env.N8N_SHARED_SECRET || 'super-secret-key';
+    const secret = process.env.N8N_SHARED_SECRET || '';
     const webhookUrl = process.env.N8N_JD_WEBHOOK_URL;
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const activeWebhookUrl = customWebhookUrl || webhookUrl;

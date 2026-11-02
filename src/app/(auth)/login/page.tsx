@@ -106,30 +106,49 @@ export default function LoginPage() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {/* Demo Credentials Box */}
-        <div className="mb-4 p-3 bg-indigo-50/80 border border-indigo-100 rounded-lg text-xs text-indigo-900 flex items-start justify-between gap-3">
-          <div className="space-y-1">
-            <p className="font-semibold text-indigo-950 flex items-center gap-1.5">
-              <span>Admin Account</span>
-            </p>
-            <div className="text-[11px] text-indigo-800 space-y-0.5">
-              <p>Email: <span className="font-mono font-medium text-neutral-900 bg-white px-1.5 py-0.5 rounded border border-indigo-100">admin@gmail.com</span></p>
-              <p>Password: <span className="font-mono font-medium text-neutral-900 bg-white px-1.5 py-0.5 rounded border border-indigo-100">admin123</span></p>
+        {/* Quick Test Credentials Box */}
+        {process.env.NEXT_PUBLIC_ENABLE_DEMO_LOGIN === 'true' && (
+          <div className="mb-4 p-3 bg-neutral-50/90 border border-neutral-200/80 rounded-lg text-xs text-neutral-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-neutral-900 text-[11px] tracking-wide uppercase">
+                Quick Test Accounts
+              </span>
+              <span className="text-[10px] text-neutral-500 font-medium">Click to fill</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setValue('email', process.env.NEXT_PUBLIC_DEMO_ADMIN_EMAIL || 'admin@gmail.com');
+                  setValue('password', process.env.NEXT_PUBLIC_DEMO_ADMIN_PASSWORD || 'admin123');
+                }}
+                className="p-2 rounded-md border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100/90 text-left transition-all cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[11px] text-indigo-950">Super Admin</span>
+                  <span className="text-[9px] px-1 py-0.2 bg-indigo-200/80 text-indigo-800 rounded font-semibold">ADMIN</span>
+                </div>
+                <div className="text-[10px] text-indigo-700 font-mono mt-0.5 truncate">{process.env.NEXT_PUBLIC_DEMO_ADMIN_EMAIL || 'admin@gmail.com'}</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setValue('email', 'recruiter@gmail.com');
+                  setValue('password', 'recruiter123');
+                }}
+                className="p-2 rounded-md border border-violet-200 bg-violet-50/70 hover:bg-violet-100/90 text-left transition-all cursor-pointer"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[11px] text-violet-950">Recruiter</span>
+                  <span className="text-[9px] px-1 py-0.2 bg-violet-200/80 text-violet-800 rounded font-semibold">RECRUITER</span>
+                </div>
+                <div className="text-[10px] text-violet-700 font-mono mt-0.5 truncate">recruiter@gmail.com</div>
+              </button>
             </div>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setValue('email', 'admin@gmail.com');
-              setValue('password', 'admin123');
-            }}
-            className="text-xs shrink-0 bg-white hover:bg-indigo-100 text-indigo-700 border-indigo-200 cursor-pointer font-medium"
-          >
-            Auto-fill
-          </Button>
-        </div>
+        )}
 
         {errorAlert && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-sm flex items-start gap-2 leading-relaxed">

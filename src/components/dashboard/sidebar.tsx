@@ -23,11 +23,11 @@ export function Sidebar({ user }: SidebarProps) {
     { name: 'Candidates', href: '/dashboard/candidates', icon: Users },
     { name: 'Results', href: '/dashboard/results', icon: BarChart3 },
     { name: 'Scheduler', href: '/dashboard/calendar', icon: Calendar },
-    { name: 'Settings', href: '/dashboard/settings', icon: Settings },
   ];
 
   if (user.role === 'ADMIN') {
     menuItems.push({ name: 'HR Team', href: '/dashboard/team', icon: UserCheck });
+    menuItems.push({ name: 'Settings', href: '/dashboard/settings', icon: Settings });
   }
 
   const handleSignOut = async () => {
@@ -85,11 +85,15 @@ export function Sidebar({ user }: SidebarProps) {
             <p className="text-sm font-medium text-neutral-900 truncate">{user.name}</p>
             <p className="text-xs text-neutral-500 truncate">{user.email}</p>
           </div>
-          {user.role === 'ADMIN' && (
-            <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-sm text-[9px] font-bold bg-neutral-950 text-white leading-none uppercase tracking-wider">
-              Admin
-            </span>
-          )}
+          <span
+            className={`shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
+              user.role === 'ADMIN'
+                ? 'bg-indigo-600 text-white'
+                : 'bg-neutral-200 text-neutral-800'
+            }`}
+          >
+            {user.role === 'ADMIN' ? 'Admin' : 'Recruiter'}
+          </span>
         </div>
         <button
           onClick={handleSignOut}

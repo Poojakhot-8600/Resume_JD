@@ -1,7 +1,8 @@
 import { Resend } from 'resend';
+import { env } from '@/config/env';
 
-const resend = process.env.RESEND_API_KEY
-  ? new Resend(process.env.RESEND_API_KEY)
+const resend = env.resendApiKey
+  ? new Resend(env.resendApiKey)
   : null;
 
 export async function sendAssessmentInviteEmail({
@@ -15,7 +16,7 @@ export async function sendAssessmentInviteEmail({
   jobTitle: string;
   token: string;
 }) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const appUrl = env.appUrl;
   const inviteUrl = `${appUrl}/assessment/${token}`;
 
   const html = `
@@ -46,7 +47,7 @@ export async function sendAssessmentInviteEmail({
   if (resend) {
     try {
       await resend.emails.send({
-        from: 'Assessment Platform <onboarding@resend.dev>',
+        from: env.emailFrom,
         to: candidateEmail,
         subject: `Technical Assessment Invitation: ${jobTitle}`,
         html,
@@ -79,7 +80,7 @@ export async function sendShortlistInviteEmail({
   jobTitle: string;
   token: string;
 }) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const appUrl = env.appUrl;
   const bookUrl = `${appUrl}/candidate/book-slot/${token}`;
 
   const html = `
@@ -107,7 +108,7 @@ export async function sendShortlistInviteEmail({
   if (resend) {
     try {
       await resend.emails.send({
-        from: 'Assessment Platform <onboarding@resend.dev>',
+        from: env.emailFrom,
         to: candidateEmail,
         subject: `Congratulations! Shortlisted for ${jobTitle}`,
         html,
@@ -143,7 +144,7 @@ export async function sendBookingConfirmationEmail({
   endTime: Date;
   token: string;
 }) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const appUrl = env.appUrl;
   const assessmentUrl = `${appUrl}/assessment/${token}`;
 
   const html = `
@@ -175,7 +176,7 @@ export async function sendBookingConfirmationEmail({
   if (resend) {
     try {
       await resend.emails.send({
-        from: 'Assessment Platform <onboarding@resend.dev>',
+        from: env.emailFrom,
         to: candidateEmail,
         subject: `Confirmed: Assessment Slot for ${jobTitle}`,
         html,
@@ -211,7 +212,7 @@ export async function sendAssessmentReminderEmail({
   startTime: Date;
   token: string;
 }) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const appUrl = env.appUrl;
   const assessmentUrl = `${appUrl}/assessment/${token}`;
 
   const html = `
@@ -239,7 +240,7 @@ export async function sendAssessmentReminderEmail({
   if (resend) {
     try {
       await resend.emails.send({
-        from: 'Assessment Platform <onboarding@resend.dev>',
+        from: env.emailFrom,
         to: candidateEmail,
         subject: `Reminder: Assessment for ${jobTitle} starts soon`,
         html,

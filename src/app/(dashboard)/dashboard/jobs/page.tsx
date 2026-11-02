@@ -31,22 +31,17 @@ import {
 import { JobItem, JobDescriptionItem, MatchedCandidate } from '@/types';
 import { CandidateScorecardModal } from '@/components/dashboard/candidate-scorecard-modal';
 
-// Module-level cache — survives client-side navigations within the session
-let _cachedJobDescriptions: JobDescriptionItem[] | null = null;
-let _cachedJobs: JobItem[] | null = null;
-let _cachedTotalMatchedCandidates = 0;
-
 export default function JobsPage() {
   const [activeTab, setActiveTab] = React.useState<'descriptions' | 'assessmentJobs'>('descriptions');
   
   // Job Descriptions (Supabase job_descriptions table)
-  const [jobDescriptions, setJobDescriptions] = React.useState<JobDescriptionItem[]>(_cachedJobDescriptions ?? []);
-  const [totalMatchedCandidates, setTotalMatchedCandidates] = React.useState<number>(_cachedTotalMatchedCandidates);
-  const [isLoadingDescriptions, setIsLoadingDescriptions] = React.useState(_cachedJobDescriptions === null);
+  const [jobDescriptions, setJobDescriptions] = React.useState<JobDescriptionItem[]>([]);
+  const [totalMatchedCandidates, setTotalMatchedCandidates] = React.useState<number>(0);
+  const [isLoadingDescriptions, setIsLoadingDescriptions] = React.useState(true);
   
   // Assessment Jobs (jobs table)
-  const [jobs, setJobs] = React.useState<JobItem[]>(_cachedJobs ?? []);
-  const [isLoadingJobs, setIsLoadingJobs] = React.useState(_cachedJobs === null);
+  const [jobs, setJobs] = React.useState<JobItem[]>([]);
+  const [isLoadingJobs, setIsLoadingJobs] = React.useState(true);
 
   // Status Filter for JDs
   const [jdStatusFilter, setJdStatusFilter] = React.useState('All');
@@ -67,11 +62,9 @@ export default function JobsPage() {
       }
       const data = await res.json();
       if (data.jobDescriptions) {
-        _cachedJobDescriptions = data.jobDescriptions;
         setJobDescriptions(data.jobDescriptions);
       }
       if (typeof data.totalMatchedCandidates === 'number') {
-        _cachedTotalMatchedCandidates = data.totalMatchedCandidates;
         setTotalMatchedCandidates(data.totalMatchedCandidates);
       }
     } catch (error) {
@@ -91,7 +84,6 @@ export default function JobsPage() {
       }
       const data = await res.json();
       if (data.jobs) {
-        _cachedJobs = data.jobs;
         setJobs(data.jobs);
       }
     } catch (error) {

@@ -5,9 +5,22 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Briefcase, Users, Hourglass, CheckSquare, Award, ArrowUpRight, Plus, UploadCloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
+import { getCurrentUser } from '@/utils/auth';
+import { redirect } from 'next/navigation';
+import { getJobScope, getCandidateScope } from '@/services/authz';
+
 export const revalidate = 0; // Dynamic server page
 
 export default async function DashboardPage() {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect('/login');
+  }
+
+  const jobScope = getJobScope(user);
+  const candidateScope = getCandidateScope(user);
+  const assessmentScope = user.role === 'ADMIN' ? {} : { candidate: candidateScope };
+
   // Run queries in parallel
   const [
     totalJobs,
@@ -18,24 +31,28 @@ export default async function DashboardPage() {
     recentCandidates,
     jobsList,
   ] = await Promise.all([
-    prisma.job.count(),
-    prisma.candidate.count(),
+    prisma.job.count({ where: jobScope }),
+    prisma.candidate.count({ where: candidateScope }),
     prisma.candidate.count({
       where: {
+        ...candidateScope,
         assessmentStatus: { in: ['INVITED', 'STARTED'] },
       },
     }),
     prisma.candidate.count({
       where: {
+        ...candidateScope,
         assessmentStatus: { in: ['COMPLETED', 'EVALUATED'] },
       },
     }),
     prisma.assessment.aggregate({
+      where: assessmentScope,
       _avg: {
         score: true,
       },
     }),
     prisma.candidate.findMany({
+      where: candidateScope,
       take: 5,
       orderBy: { createdAt: 'desc' },
       include: {
@@ -44,6 +61,7 @@ export default async function DashboardPage() {
       },
     }),
     prisma.job.findMany({
+      where: jobScope,
       take: 5,
       orderBy: { createdAt: 'desc' },
       include: {
@@ -56,10 +74,10 @@ export default async function DashboardPage() {
   const avgPercentage = avgScore ? Math.round(avgScore * 10) : 0;
 
   // Candidate status distributions
-  const invitedCount = await prisma.candidate.count({ where: { assessmentStatus: 'INVITED' } });
-  const startedCount = await prisma.candidate.count({ where: { assessmentStatus: 'STARTED' } });
-  const compCount = await prisma.candidate.count({ where: { assessmentStatus: 'COMPLETED' } });
-  const evalCount = await prisma.candidate.count({ where: { assessmentStatus: 'EVALUATED' } });
+  const invitedCount = await prisma.candidate.count({ where: { ...candidateScope, assessmentStatus: 'INVITED' } });
+  const startedCount = await prisma.candidate.count({ where: { ...candidateScope, assessmentStatus: 'STARTED' } });
+  const compCount = await prisma.candidate.count({ where: { ...candidateScope, assessmentStatus: 'COMPLETED' } });
+  const evalCount = await prisma.candidate.count({ where: { ...candidateScope, assessmentStatus: 'EVALUATED' } });
 
   const statusMetrics = [
     { name: 'Invited', count: invitedCount, color: 'bg-neutral-300' },
@@ -73,22 +91,37 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
       {/* Greetings Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-neutral-200/80 shadow-2xs">
         <div>
-          <h2 className="text-xl font-bold tracking-tight text-neutral-900">Dashboard Overview</h2>
-          <p className="text-xs text-neutral-500">
-            Real-time assessment tracking, candidate response metrics, and scoring reports.
+          <div className="flex items-center gap-2 mb-1">
+            <h2 className="text-xl font-bold tracking-tight text-neutral-900">
+              Welcome back, {user.name}
+            </h2>
+            <span
+              className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                user.role === 'ADMIN'
+                  ? 'bg-indigo-100 text-indigo-800 border border-indigo-200/60'
+                  : 'bg-neutral-100 text-neutral-700 border border-neutral-200/60'
+              }`}
+            >
+              {user.role === 'ADMIN' ? 'Super Admin' : 'Recruiter Workspace'}
+            </span>
+          </div>
+          <p className="text-xs text-neutral-500 font-medium">
+            {user.role === 'ADMIN'
+              ? 'Full platform visibility across all company recruiters, job openings, and candidate evaluations.'
+              : 'Real-time candidate pipelines and assessments for your uploaded positions.'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5 shrink-0">
           <Link href="/dashboard/jobs/upload">
-            <Button size="sm" variant="outline" className="cursor-pointer gap-1">
-              <UploadCloud className="h-4 w-4" />
+            <Button size="sm" variant="outline" className="cursor-pointer gap-1.5 font-medium border-neutral-300 hover:bg-neutral-50 shadow-2xs">
+              <UploadCloud className="h-4 w-4 text-neutral-600" />
               <span>Bulk Upload</span>
             </Button>
           </Link>
           <Link href="/dashboard/jobs/new">
-            <Button size="sm" className="cursor-pointer gap-1">
+            <Button size="sm" className="cursor-pointer gap-1.5 font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs">
               <Plus className="h-4 w-4" />
               <span>Post New Job</span>
             </Button>

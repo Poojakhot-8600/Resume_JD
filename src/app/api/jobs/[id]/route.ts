@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/utils/auth';
 import { prisma } from '@/database/db';
 import { serializeBigInt } from '@/utils/serialize';
+import { assertJobOwnership, AuthorizationError, NotFoundError } from '@/services/authz';
 
 export async function GET(
   request: Request,
@@ -16,6 +17,9 @@ export async function GET(
 
     const { id } = await params;
     const positionId = BigInt(id);
+
+    // Enforce multi-tenant access control (IDOR protection)
+    await assertJobOwnership(positionId, user);
 
     let job = await prisma.job.findUnique({
       where: { id: positionId },
@@ -46,7 +50,7 @@ export async function GET(
       await generateMockDataForJob(job.id, job.title || '', job.experience || 'Not Specified');
 
       // Refetch populated job record
-      job = await prisma.job.findUnique({
+      job = (await prisma.job.findUnique({
         where: { id: positionId },
         include: {
           questions: {
@@ -61,13 +65,19 @@ export async function GET(
             select: { candidates: true },
           },
         },
-      }) as any;
+      })) as any;
     }
 
     return NextResponse.json(serializeBigInt({ success: true, job }));
   } catch (error: any) {
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
     console.error('Error fetching job details:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }
 
@@ -85,14 +95,23 @@ export async function DELETE(
     const { id } = await params;
     const positionId = BigInt(id);
 
+    // Enforce multi-tenant access control (IDOR protection)
+    await assertJobOwnership(positionId, user);
+
     await prisma.job.delete({
       where: { id: positionId },
     });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
     console.error('Error deleting job:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }
 
@@ -109,6 +128,10 @@ export async function PATCH(
 
     const { id } = await params;
     const positionId = BigInt(id);
+
+    // Enforce multi-tenant access control (IDOR protection)
+    await assertJobOwnership(positionId, user);
+
     const body = await request.json();
     const { status, title, department, location, experience } = body;
 
@@ -125,7 +148,13 @@ export async function PATCH(
 
     return NextResponse.json(serializeBigInt({ success: true, job: updatedJob }));
   } catch (error: any) {
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
     console.error('Error updating job:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
   }
 }

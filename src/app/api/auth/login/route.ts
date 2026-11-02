@@ -5,6 +5,8 @@ import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
 import * as z from 'zod';
 import { createClient } from '@/utils/supabase/server';
+import { env } from '@/config/env';
+import crypto from 'crypto';
 
 const loginSchema = z.object({
   email: z
@@ -57,13 +59,13 @@ export async function POST(request: Request) {
     });
 
     // Self-heal: auto-create admin user if missing in User table
-    if (!user && normalizedEmail === 'admin@gmail.com') {
-      const defaultHash = await bcrypt.hash('admin123', 10);
+    if (!user && normalizedEmail === env.defaultAdminEmail) {
+      const defaultHash = await bcrypt.hash(env.defaultAdminPassword, 10);
       user = await prisma.user.create({
         data: {
-          id: authUser?.id || 'seeded-admin-user-id',
+          id: authUser?.id || crypto.randomUUID(),
           name: 'System Admin',
-          email: 'admin@gmail.com',
+          email: env.defaultAdminEmail,
           passwordHash: defaultHash,
           role: 'ADMIN',
         },
@@ -81,7 +83,7 @@ export async function POST(request: Request) {
     // 4. Auto-create user record in Prisma if authenticated via Supabase but missing in DB
     if (isAuthenticated && !user && authUser) {
       const userCount = await prisma.user.count();
-      const role = userCount === 0 || normalizedEmail === 'admin@gmail.com' ? 'ADMIN' : 'RECRUITER';
+      const role = userCount === 0 || normalizedEmail === env.defaultAdminEmail ? 'ADMIN' : 'RECRUITER';
       const defaultHash = await bcrypt.hash(password, 10);
       user = await prisma.user.create({
         data: {

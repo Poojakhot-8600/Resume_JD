@@ -41,14 +41,10 @@ const inviteSchema = z.object({
 
 type InviteValues = z.infer<typeof inviteSchema>;
 
-// Module-level cache — survives client-side navigations within the session
-let _cachedCandidates: CandidateItem[] | null = null;
-let _cachedActiveJobs: JobMinimal[] | null = null;
-
 export default function CandidatesPage() {
-  const [candidates, setCandidates] = React.useState<CandidateItem[]>(_cachedCandidates ?? []);
-  const [activeJobs, setActiveJobs] = React.useState<JobMinimal[]>(_cachedActiveJobs ?? []);
-  const [isLoading, setIsLoading] = React.useState(_cachedCandidates === null);
+  const [candidates, setCandidates] = React.useState<CandidateItem[]>([]);
+  const [activeJobs, setActiveJobs] = React.useState<JobMinimal[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
   const [isInviteOpen, setIsInviteOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState('ALL');
@@ -75,7 +71,6 @@ export default function CandidatesPage() {
       const res = await fetch('/api/candidates');
       const data = await res.json();
       if (data.candidates) {
-        _cachedCandidates = data.candidates;
         setCandidates(data.candidates);
       }
     } catch (err) {
@@ -92,7 +87,6 @@ export default function CandidatesPage() {
       const data = await res.json();
       if (data.jobs) {
         const filtered = data.jobs.filter((j: any) => j.status === 'ACTIVE');
-        _cachedActiveJobs = filtered;
         setActiveJobs(filtered);
       }
     } catch (err) {

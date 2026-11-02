@@ -52,7 +52,7 @@ export async function POST(request: Request) {
 
     const requestId = crypto.randomUUID();
     const webhookUrl = process.env.N8N_JD_WEBHOOK_URL;
-    const secret = process.env.N8N_SHARED_SECRET || 'super-secret-key';
+    const secret = process.env.N8N_SHARED_SECRET || '';
 
     if (webhookUrl) {
       // Async trigger to n8n (non-blocking)

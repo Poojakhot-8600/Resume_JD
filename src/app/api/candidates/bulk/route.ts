@@ -22,8 +22,8 @@ export async function POST(request: Request) {
       process.env.N8N_CANDIDATE_RESUME_WEBHOOK_URL ||
       process.env.N8N_CANDIDATE_IMPORT_URL;
     const jobWebhookUrl = process.env.N8N_JD_WEBHOOK_URL;
-    const secret = process.env.N8N_SHARED_SECRET || 'super-secret-key';
-    
+    const secret = process.env.N8N_SHARED_SECRET || '';
+
     // Fallback to Job Webhook if Candidate webhook is not explicitly configured
     const activeWebhookUrl = customWebhookUrl || candidateWebhookUrl || jobWebhookUrl;
 
@@ -40,10 +40,10 @@ export async function POST(request: Request) {
           body: JSON.stringify(candidates.map((c: any) => {
             const fname = c.Candidate_FNAME || c.Candidate_Fname || c.fname || '';
             const lname = c.Candidate_LNAME || c.Candidate_Lname || c.lname || '';
-            
+
             let finalFname = fname;
             let finalLname = lname;
-            
+
             if (!finalFname) {
               const fullName = c.Name || c.name || c['Full Name'] || c['Candidate Name'] || '';
               const nameParts = fullName.trim().split(/\s+/);
@@ -53,15 +53,15 @@ export async function POST(request: Request) {
 
             const rawPositionId = c.Position_ID || c.jobId || defaultJobId || '0';
             const rawCandidateId = c.Candidate_ID || Math.floor(100000 + Math.random() * 900000);
-            
+
             const cleanCandidateIdStr = rawCandidateId.toString().replace(/\D/g, '');
             const candidateIdInt = parseInt(cleanCandidateIdStr, 10) || Math.floor(100000 + Math.random() * 900000);
 
             const rawToken = c.assessmentToken ?? c.AssessmentToken ?? c.token ?? c.Token;
             const rawStatus = c.assessmentStatus ?? c.AssessmentStatus ?? c.status ?? c.Status;
 
-            const assessmentToken = (rawToken === null || rawToken === '' || rawToken === undefined || rawToken === 'null') 
-              ? null 
+            const assessmentToken = (rawToken === null || rawToken === '' || rawToken === undefined || rawToken === 'null')
+              ? null
               : rawToken.toString();
 
             const assessmentStatus = (rawStatus === null || rawStatus === '' || rawStatus === undefined || rawStatus === 'null')
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
         let resData: any = {};
         try {
           resData = await response.json();
-        } catch (_) {}
+        } catch (_) { }
 
         return NextResponse.json(serializeBigInt({
           success: true,
@@ -96,9 +96,10 @@ export async function POST(request: Request) {
       }
     }
 
-    // Load active jobs to resolve job titles if needed
+    // Load active jobs scoped to current recruiter (or all for admin)
+    const jobFilter = user.role === 'ADMIN' ? { status: 'ACTIVE' } : { status: 'ACTIVE', createdBy: user.id };
     const activeJobs = await prisma.job.findMany({
-      where: { status: 'ACTIVE' },
+      where: jobFilter,
     });
 
     const createdCandidates = [];
@@ -109,10 +110,10 @@ export async function POST(request: Request) {
     for (const c of candidates) {
       const fname = c.Candidate_FNAME || c.Candidate_Fname || c.fname || '';
       const lname = c.Candidate_LNAME || c.Candidate_Lname || c.lname || '';
-      
+
       let finalFname = fname;
       let finalLname = lname;
-      
+
       const name = c.Name || c.name || c['Full Name'] || c['Candidate Name'];
       if (name && !finalFname) {
         const nameParts = name.trim().split(/\s+/);
@@ -126,7 +127,7 @@ export async function POST(request: Request) {
 
       // Resolve job title to ID if title is provided
       const jobTitle = c['Job Title'] || c.jobTitle || c.JobTitle;
-      
+
       let positionId: bigint | null = null;
       if (jobId) {
         positionId = BigInt(parseInt(jobId.toString(), 10));
@@ -146,7 +147,7 @@ export async function POST(request: Request) {
       }
 
       const job = activeJobs.find((j) => j.id === positionId) || await prisma.job.findUnique({ where: { id: positionId } });
-      if (!job) {
+      if (!job || (user.role !== 'ADMIN' && job.createdBy !== user.id)) {
         failedCount++;
         continue;
       }
@@ -173,8 +174,8 @@ export async function POST(request: Request) {
       const rawToken = c.assessmentToken ?? c.AssessmentToken ?? c.token ?? c.Token;
       const rawStatus = c.assessmentStatus ?? c.AssessmentStatus ?? c.status ?? c.Status;
 
-      const assessmentToken = (rawToken === null || rawToken === '' || rawToken === undefined || rawToken === 'null') 
-        ? null 
+      const assessmentToken = (rawToken === null || rawToken === '' || rawToken === undefined || rawToken === 'null')
+        ? null
         : rawToken.toString();
 
       const assessmentStatus = (rawStatus === null || rawStatus === '' || rawStatus === undefined || rawStatus === 'null')

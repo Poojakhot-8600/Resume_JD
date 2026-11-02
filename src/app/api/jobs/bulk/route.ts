@@ -18,7 +18,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
     }
 
-    const secret = process.env.N8N_SHARED_SECRET || 'super-secret-key';
+    const secret = process.env.N8N_SHARED_SECRET || '';
     const webhookUrl = process.env.N8N_JD_WEBHOOK_URL;
     const activeWebhookUrl = customWebhookUrl || webhookUrl;
 

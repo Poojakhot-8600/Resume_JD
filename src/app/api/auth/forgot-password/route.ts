@@ -13,9 +13,8 @@ const schema = z.object({
     .email('Please enter a valid email address.'),
 });
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'recruiter-assessment-platform-super-secret-key-123456789'
-);
+import { getJwtSecret } from '@/utils/auth';
+import { env } from '@/config/env';
 
 export async function POST(request: Request) {
   try {
@@ -79,7 +78,7 @@ export async function POST(request: Request) {
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
         .setExpirationTime('1h')
-        .sign(JWT_SECRET);
+        .sign(getJwtSecret());
 
       devResetUrl = `${appUrl}/reset-password?token=${resetToken}&email=${encodeURIComponent(normalizedEmail)}`;
 
@@ -88,7 +87,7 @@ export async function POST(request: Request) {
         try {
           const resend = new Resend(process.env.RESEND_API_KEY);
           await resend.emails.send({
-            from: 'Assessment Platform <onboarding@resend.dev>',
+            from: env.emailFrom,
             to: normalizedEmail,
             subject: 'Reset Your Password - Recruitment Assessment Hub',
             html: `

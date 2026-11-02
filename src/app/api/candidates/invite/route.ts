@@ -3,6 +3,8 @@ import { getCurrentUser } from '@/utils/auth';
 import { prisma } from '@/database/db';
 import { sendAssessmentInviteEmail } from '@/services/email';
 import { serializeBigInt } from '@/utils/serialize';
+import { assertJobOwnership, AuthorizationError, NotFoundError } from '@/services/authz';
+import crypto from 'crypto';
 
 export async function POST(request: Request) {
   try {
@@ -21,21 +23,15 @@ export async function POST(request: Request) {
 
     const positionId = BigInt(parseInt(jobId.toString(), 10));
 
-    // Check if job exists
-    const job = await prisma.job.findUnique({
-      where: { id: positionId },
-    });
-
-    if (!job) {
-      return NextResponse.json({ error: 'Selected job position not found.' }, { status: 404 });
-    }
+    // Verify job exists and caller has ownership (or is ADMIN)
+    const job = await assertJobOwnership(positionId, user);
 
     // Generate unique unguessable token unless explicitly null/empty
     const assessmentToken = (reqToken === null || reqToken === '') ? null : (reqToken || crypto.randomUUID());
 
     // Determine status: explicitly null/empty or fallback to status or INVITED
-    const assessmentStatus = (reqStatus === null || reqStatus === '') 
-      ? null 
+    const assessmentStatus = (reqStatus === null || reqStatus === '')
+      ? null
       : (reqStatus || (assessmentToken ? 'INVITED' : null));
 
     const nameParts = name.trim().split(/\s+/);
@@ -70,6 +66,12 @@ export async function POST(request: Request) {
 
     return NextResponse.json(serializeBigInt({ success: true, candidate }));
   } catch (error: any) {
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
     console.error('Error inviting candidate:', error);
     return NextResponse.json(
       { error: error.message || 'Internal Server Error' },
