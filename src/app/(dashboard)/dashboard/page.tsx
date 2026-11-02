@@ -264,7 +264,9 @@ export default async function DashboardPage() {
                     return (
                       <TableRow key={c.id}>
                         <TableCell>
-                          <div className="text-xs font-semibold text-neutral-900">{c.name}</div>
+                          <div className="text-xs font-semibold text-neutral-900">
+                            {[c.fname, c.lname].filter(Boolean).join(' ') || 'Candidate'}
+                          </div>
                           <div className="text-[10px] text-neutral-500">{c.email}</div>
                         </TableCell>
                         <TableCell className="text-xs text-neutral-700">

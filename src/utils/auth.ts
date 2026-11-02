@@ -26,10 +26,29 @@ export interface AuthenticatedUser {
 }
 
 /**
- * Signs a secure JWT valid for 7 days
+ * Signs a short-lived access JWT valid for 1 hour.
+ * Ideal for high-speed API authorization with minimal exposure window.
  */
-export async function signJWT(payload: TokenPayload): Promise<string> {
-  return new SignJWT(payload)
+export async function signAccessToken(payload: TokenPayload): Promise<string> {
+  return new SignJWT({ ...payload, token_type: 'access' })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .sign(getJwtSecret());
+}
+
+/**
+ * Signs a long-lived refresh JWT valid for 7 days.
+ * Used to seamlessly rotate expired access tokens without re-login.
+ */
+export async function signRefreshToken(payload: TokenPayload): Promise<string> {
+  return new SignJWT({
+    id: payload.id,
+    name: payload.name,
+    email: payload.email,
+    role: payload.role,
+    token_type: 'refresh',
+  })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('7d')
@@ -37,7 +56,18 @@ export async function signJWT(payload: TokenPayload): Promise<string> {
 }
 
 /**
- * Cryptographically verifies a JWT.
+ * Signs a secure JWT (defaults to 7d session, configurable).
+ */
+export async function signJWT(payload: TokenPayload, expiresIn: string = '7d'): Promise<string> {
+  return new SignJWT(payload)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(expiresIn)
+    .sign(getJwtSecret());
+}
+
+/**
+ * Cryptographically verifies a JWT (access or refresh).
  * Strict signature validation — zero unverified token bypasses.
  */
 export async function verifyJWT(token: string): Promise<TokenPayload | null> {
@@ -132,12 +162,28 @@ export async function getCurrentUser(req?: Request): Promise<AuthenticatedUser |
       } catch {}
     }
 
-    if (!token) {
-      return null;
+    // Verify access token cryptographically
+    let payload = token ? await verifyJWT(token) : null;
+
+    // Fallback: Check refresh token if access token expired or missing
+    if (!payload) {
+      let refreshToken: string | undefined;
+      if (req) {
+        const cookieHeader = req.headers.get('cookie') || '';
+        const match = cookieHeader.match(/(?:^|;\s*)refresh_token=([^;]+)/);
+        if (match) refreshToken = decodeURIComponent(match[1]);
+      }
+      if (!refreshToken) {
+        try {
+          const cookieStore = await cookies();
+          refreshToken = cookieStore.get('refresh_token')?.value;
+        } catch {}
+      }
+      if (refreshToken) {
+        payload = await verifyJWT(refreshToken);
+      }
     }
 
-    // Verify token cryptographically
-    const payload = await verifyJWT(token);
     if (!payload || !payload.id) {
       return null;
     }
