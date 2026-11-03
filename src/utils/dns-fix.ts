@@ -1,7 +1,6 @@
 // Only run in Node.js runtime (not Edge or Browser)
 if (typeof process !== 'undefined' && process.env?.NEXT_RUNTIME !== 'edge') {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const dns = require('node:dns');
 
     if (typeof dns.setDefaultResultOrder === 'function') {

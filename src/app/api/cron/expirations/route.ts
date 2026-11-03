@@ -3,11 +3,13 @@ import { prisma, pool } from '@/database/db';
 
 export async function POST(request: Request) {
   try {
-    // Shared secret authorization check
-    const cronSecret = process.env.CRON_SECRET || 'super-cron-secret-key';
+    // Shared secret authorization check (timing-safe)
+    const cronSecret = process.env.CRON_SECRET || '';
     const authHeader = request.headers.get('authorization');
+    const token = authHeader?.replace('Bearer ', '').trim();
 
-    if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
+    const { verifyTimingSafeSecret } = await import('@/services/authz');
+    if (!verifyTimingSafeSecret(token, cronSecret)) {
       return NextResponse.json({ error: 'Unauthorized cron trigger.' }, { status: 401 });
     }
 

@@ -5,6 +5,8 @@ import { jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
 import * as z from 'zod';
 
+import { getJwtSecret } from '@/utils/auth';
+
 const resetSchema = z.object({
   token: z.string().min(1, 'Token is required'),
   email: z.string().email('Invalid email'),
@@ -14,10 +16,6 @@ const resetSchema = z.object({
     .regex(/[A-Za-z]/, 'Password must contain at least one letter.')
     .regex(/[0-9]/, 'Password must contain at least one number.'),
 });
-
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'recruiter-assessment-platform-super-secret-key-123456789'
-);
 
 export async function POST(request: Request) {
   try {
@@ -36,7 +34,7 @@ export async function POST(request: Request) {
 
     // 1. Verify token
     try {
-      const { payload } = await jwtVerify(token, JWT_SECRET);
+      const { payload } = await jwtVerify(token, getJwtSecret());
       if (
         payload.email !== normalizedEmail ||
         payload.purpose !== 'password_recovery'

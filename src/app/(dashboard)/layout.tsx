@@ -10,12 +10,10 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const dbUser = (await getCurrentUser()) || {
-    id: 'seeded-admin-user-id',
-    name: 'System Admin',
-    email: 'admin@gmail.com',
-    role: 'ADMIN' as const,
-  };
+  const dbUser = await getCurrentUser();
+  if (!dbUser) {
+    redirect('/login');
+  }
 
   return (
     <div className="flex h-screen bg-neutral-50 font-sans antialiased text-neutral-900 overflow-hidden">

@@ -210,9 +210,10 @@ export async function POST(request: Request) {
     // Determine target webhook URL for Job Description
     const webhookUrl =
       process.env.N8N_JD_WEBHOOK_URL ||
-      'https://pooja456.app.n8n.cloud/webhook-test/jd-upload';
+      process.env.NEXT_PUBLIC_N8N_JD_WEBHOOK_URL ||
+      '';
 
-    const secret = process.env.N8N_SHARED_SECRET || 'super-secret-key';
+    const secret = process.env.N8N_SHARED_SECRET || '';
 
     // Generate unique batch ID
     const batchId = `batch_job_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;

@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/utils/auth';
 import { prisma } from '@/database/db';
 import { z } from 'zod';
-import { generateMockDataForJob } from '@/utils/mockGenerator';
 import { serializeBigInt } from '@/utils/serialize';
 
 const uploadSchema = z.object({
@@ -52,7 +51,7 @@ export async function POST(request: Request) {
 
     const requestId = crypto.randomUUID();
     const webhookUrl = process.env.N8N_JD_WEBHOOK_URL;
-    const secret = process.env.N8N_SHARED_SECRET || 'super-secret-key';
+    const secret = process.env.N8N_SHARED_SECRET || '';
 
     if (webhookUrl) {
       // Async trigger to n8n (non-blocking)
@@ -78,9 +77,7 @@ export async function POST(request: Request) {
         console.error('[API jobs/upload] n8n webhook execution failed in background:', err);
       });
     } else {
-      // Dev Simulation Fallback: Populate mock details and candidate evaluations synchronously
-      console.log('[API jobs/upload] No N8N_JD_WEBHOOK_URL defined. Generating mock details and candidates synchronously...');
-      await generateMockDataForJob(job.id, title, experience);
+      console.log('[API jobs/upload] No N8N_JD_WEBHOOK_URL configured. Job stored with PROCESSING status awaiting webhook processing.');
     }
 
     return NextResponse.json(serializeBigInt({ success: true, job }));

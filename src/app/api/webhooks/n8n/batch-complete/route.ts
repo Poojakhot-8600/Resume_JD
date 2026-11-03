@@ -5,13 +5,14 @@ import { BatchStatus, UploadRecordDetail } from '@/types';
 
 export async function POST(request: Request) {
   try {
-    const webhookSecret = process.env.N8N_SHARED_SECRET || 'super-secret-key';
+    const webhookSecret = process.env.N8N_SHARED_SECRET || '';
     const clientSecret =
       request.headers.get('x-webhook-secret') ||
       request.headers.get('x-n8n-secret') ||
       request.headers.get('authorization')?.replace('Bearer ', '');
 
-    if (!clientSecret || clientSecret !== webhookSecret) {
+    const { verifyTimingSafeSecret } = await import('@/services/authz');
+    if (!verifyTimingSafeSecret(clientSecret, webhookSecret)) {
       return NextResponse.json({ error: 'Unauthorized webhook request.' }, { status: 401 });
     }
 

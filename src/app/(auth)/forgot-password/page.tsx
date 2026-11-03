@@ -111,7 +111,7 @@ export default function ForgotPasswordPage() {
               <div>
                 <p className="font-semibold text-amber-950">Supabase Email Rate Limit Reached</p>
                 <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
-                  Supabase's default shared mailer has an hourly cap of <strong>3 emails per hour</strong> across the project. New emails are temporarily blocked by Supabase until the cooldown window resets.
+                  Supabase&apos;s default shared mailer has an hourly cap of <strong>3 emails per hour</strong> across the project. New emails are temporarily blocked by Supabase until the cooldown window resets.
                 </p>
               </div>
             </div>
@@ -164,7 +164,7 @@ export default function ForgotPasswordPage() {
                   <span>Important Delivery Notice</span>
                 </p>
                 <p className="text-[11px] leading-relaxed">
-                  Please check both your <strong>Inbox</strong> and <strong>Spam / Junk</strong> folder. Automated emails from Supabase's default shared sender (<code>noreply@mail.app.supabase.io</code>) are frequently routed to Spam by Gmail.
+                  Please check both your <strong>Inbox</strong> and <strong>Spam / Junk</strong> folder. Automated emails from Supabase&apos;s default shared sender (<code>noreply@mail.app.supabase.io</code>) are frequently routed to Spam by Gmail.
                 </p>
               </div>
             )}

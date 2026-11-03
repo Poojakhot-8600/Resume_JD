@@ -3,11 +3,21 @@ import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
 const eslintConfig = defineConfig([
-  ...nextVitals,
+  ...nextVitals.map((cfg) => {
+    if (cfg.plugins && cfg.plugins["react-hooks"]) {
+      return {
+        ...cfg,
+        rules: {
+          ...cfg.rules,
+          "react-hooks/set-state-in-effect": "off",
+          "react-hooks/immutability": "off",
+        },
+      };
+    }
+    return cfg;
+  }),
   ...nextTs,
-  // Override default ignores of eslint-config-next.
   globalIgnores([
-    // Default ignores of eslint-config-next:
     ".next/**",
     "out/**",
     "build/**",
@@ -20,9 +30,6 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-unused-vars": "off",
       "@typescript-eslint/no-require-imports": "off",
       "@typescript-eslint/ban-ts-comment": "off",
-      "react-hooks/set-state-in-effect": "off",
-      "react-hooks/immutability": "off",
-      "react-hooks/exhaustive-deps": "warn",
     },
   },
 ]);

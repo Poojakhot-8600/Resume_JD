@@ -37,7 +37,7 @@ export async function POST(request: Request) {
 
     const { jobs, duplicateStrategy, customWebhookUrl } = validation.data;
 
-    const secret = process.env.N8N_SHARED_SECRET || 'super-secret-key';
+    const secret = process.env.N8N_SHARED_SECRET || '';
     const webhookUrl = process.env.N8N_JD_WEBHOOK_URL;
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const activeWebhookUrl = customWebhookUrl || webhookUrl;
@@ -195,40 +195,6 @@ function triggerAsyncParsing(
       console.error(`[Import Async Trigger] n8n webhook failed for Job ${jobId}:`, err);
     });
   } else {
-    // Simulate callback async local parsing in background
-    setTimeout(async () => {
-      try {
-        const mockQuestions = [
-          { question: `Describe a complex feature you built using React for a ${title} position.`, topic: 'System Architecture' },
-          { question: `What are your best-practice strategies for database schema design and migrations in this ${title} role?`, topic: 'Database & ORMs' },
-          { question: `Explain how you approach error handling, validation, and security protocols in ${title} backend services.`, topic: 'API Implementation' },
-        ];
-        const mockJDData = {
-          skills: ['TypeScript', 'React', 'Prisma'],
-          mustHave: [`Experience in a ${title} position`],
-          goodToHave: ['Good communication skills'],
-          experience,
-          seniority: 'Mid-Level',
-          topics: ['System Architecture', 'Database & ORMs', 'API Implementation'],
-          weights: { TypeScript: 40, React: 30, Prisma: 30 }
-        };
-
-        await fetch(`${appUrl}/api/webhooks/n8n/jd-complete`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-webhook-secret': secret,
-          },
-          body: JSON.stringify({
-            jobId: jobId.toString(),
-            requestId: 'mock-import-request',
-            questions: mockQuestions,
-            parsedJDData: mockJDData,
-          }),
-        });
-      } catch (err) {
-        console.error('[Import Dev Simulation] Failed mock callback trigger:', err);
-      }
-    }, 2000);
+    console.log(`[Import Async Trigger] No N8N_JD_WEBHOOK_URL configured for Job ${jobId}.`);
   }
 }

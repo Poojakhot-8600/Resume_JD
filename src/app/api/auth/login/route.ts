@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/database/db';
-import { signJWT, isRequestSecure } from '@/utils/auth';
+import { signJWT, signAccessToken, signRefreshToken, isRequestSecure } from '@/utils/auth';
 import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
 import * as z from 'zod';
 import { createClient } from '@/utils/supabase/server';
+import { env } from '@/config/env';
+import crypto from 'crypto';
 
 const loginSchema = z.object({
   email: z
@@ -57,13 +59,13 @@ export async function POST(request: Request) {
     });
 
     // Self-heal: auto-create admin user if missing in User table
-    if (!user && normalizedEmail === 'admin@gmail.com') {
-      const defaultHash = await bcrypt.hash('admin123', 10);
+    if (!user && normalizedEmail === env.defaultAdminEmail) {
+      const defaultHash = await bcrypt.hash(env.defaultAdminPassword, 10);
       user = await prisma.user.create({
         data: {
-          id: authUser?.id || 'seeded-admin-user-id',
+          id: authUser?.id || crypto.randomUUID(),
           name: 'System Admin',
-          email: 'admin@gmail.com',
+          email: env.defaultAdminEmail,
           passwordHash: defaultHash,
           role: 'ADMIN',
         },
@@ -81,7 +83,7 @@ export async function POST(request: Request) {
     // 4. Auto-create user record in Prisma if authenticated via Supabase but missing in DB
     if (isAuthenticated && !user && authUser) {
       const userCount = await prisma.user.count();
-      const role = userCount === 0 || normalizedEmail === 'admin@gmail.com' ? 'ADMIN' : 'RECRUITER';
+      const role = userCount === 0 || normalizedEmail === env.defaultAdminEmail ? 'ADMIN' : 'RECRUITER';
       const defaultHash = await bcrypt.hash(password, 10);
       user = await prisma.user.create({
         data: {
@@ -110,20 +112,36 @@ export async function POST(request: Request) {
       }).catch(() => {});
     }
 
-    // Sign session token payload for existing app routes
-    const token = await signJWT({
+    // Issue short-lived Access Token (1 hour) and long-lived Refresh Token (7 days)
+    const tokenPayload = {
       id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
-    });
+    };
 
-    // Set HTTP session cookie on both cookieStore and response directly
+    const accessToken = await signAccessToken(tokenPayload);
+    const refreshToken = await signRefreshToken(tokenPayload);
+
+    // Set HTTP session cookies
     const secure = isRequestSecure(request);
     const cookieStore = await cookies();
+
+    // 1. Access Token Cookie (1 hour)
     cookieStore.set({
       name: 'auth_token',
-      value: token,
+      value: accessToken,
+      httpOnly: true,
+      secure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60, // 1 hour
+    });
+
+    // 2. Refresh Token Cookie (7 days)
+    cookieStore.set({
+      name: 'refresh_token',
+      value: refreshToken,
       httpOnly: true,
       secure,
       sameSite: 'lax',
@@ -133,7 +151,8 @@ export async function POST(request: Request) {
 
     const response = NextResponse.json({
       success: true,
-      token,
+      token: accessToken,
+      refreshToken,
       user: {
         id: user.id,
         name: user.name,
@@ -142,9 +161,20 @@ export async function POST(request: Request) {
       },
     });
 
+    // Also set directly on response headers for edge compatibility
     response.cookies.set({
       name: 'auth_token',
-      value: token,
+      value: accessToken,
+      httpOnly: true,
+      secure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60,
+    });
+
+    response.cookies.set({
+      name: 'refresh_token',
+      value: refreshToken,
       httpOnly: true,
       secure,
       sameSite: 'lax',

@@ -10,6 +10,9 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { DataTable, ColumnDef } from '@/components/ui/data-table';
+import { MetricCard } from '@/components/ui/metric-card';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { PageHeader } from '@/components/ui/page-header';
 import { 
   Users, 
   Plus, 
@@ -41,14 +44,10 @@ const inviteSchema = z.object({
 
 type InviteValues = z.infer<typeof inviteSchema>;
 
-// Module-level cache — survives client-side navigations within the session
-let _cachedCandidates: CandidateItem[] | null = null;
-let _cachedActiveJobs: JobMinimal[] | null = null;
-
 export default function CandidatesPage() {
-  const [candidates, setCandidates] = React.useState<CandidateItem[]>(_cachedCandidates ?? []);
-  const [activeJobs, setActiveJobs] = React.useState<JobMinimal[]>(_cachedActiveJobs ?? []);
-  const [isLoading, setIsLoading] = React.useState(_cachedCandidates === null);
+  const [candidates, setCandidates] = React.useState<CandidateItem[]>([]);
+  const [activeJobs, setActiveJobs] = React.useState<JobMinimal[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
   const [isInviteOpen, setIsInviteOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState('ALL');
@@ -75,7 +74,6 @@ export default function CandidatesPage() {
       const res = await fetch('/api/candidates');
       const data = await res.json();
       if (data.candidates) {
-        _cachedCandidates = data.candidates;
         setCandidates(data.candidates);
       }
     } catch (err) {
@@ -92,7 +90,6 @@ export default function CandidatesPage() {
       const data = await res.json();
       if (data.jobs) {
         const filtered = data.jobs.filter((j: any) => j.status === 'ACTIVE');
-        _cachedActiveJobs = filtered;
         setActiveJobs(filtered);
       }
     } catch (err) {
@@ -359,15 +356,7 @@ export default function CandidatesPage() {
       header: 'Assessment Status',
       accessorKey: 'assessmentStatus',
       sortable: true,
-      cell: (c: CandidateItem) => (
-        <span
-          className={`inline-flex items-center px-2 py-0.5 text-[10px] font-bold rounded-sm border uppercase ${getStatusColor(
-            c.assessmentStatus
-          )}`}
-        >
-          {c.assessmentStatus}
-        </span>
-      ),
+      cell: (c: CandidateItem) => <StatusBadge status={c.assessmentStatus} />,
     },
     {
       header: 'Created At',
@@ -471,56 +460,47 @@ export default function CandidatesPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-neutral-900">Candidates Directory</h2>
-          <p className="text-xs text-neutral-500 mt-1">
-            Candidate profiles, extracted resume summaries, skills, and assessment scores.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link href="/dashboard/candidates/upload">
-            <Button size="sm" variant="outline" className="cursor-pointer gap-1.5 border-neutral-200">
-              <Upload className="h-4 w-4" />
-              <span>Upload Candidate Resume</span>
-            </Button>
-          </Link>
-          <Button size="sm" className="cursor-pointer gap-1" onClick={() => setIsInviteOpen(true)}>
-            <Plus className="h-4.5 w-4.5" />
-            <span>Invite Candidate</span>
+      <PageHeader
+        title="Candidates Directory"
+        description="Candidate profiles, extracted resume summaries, skills, and assessment scores."
+      >
+        <Link href="/dashboard/candidates/upload">
+          <Button size="sm" variant="outline" className="cursor-pointer gap-1.5 border-neutral-200">
+            <Upload className="h-4 w-4" />
+            <span>Upload Candidate Resume</span>
           </Button>
-        </div>
-      </div>
+        </Link>
+        <Button size="sm" className="cursor-pointer gap-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold" onClick={() => setIsInviteOpen(true)}>
+          <Plus className="h-4 w-4" />
+          <span>Invite Candidate</span>
+        </Button>
+      </PageHeader>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Total Candidates</span>
-            <Users className="h-4 w-4 text-indigo-600" />
-          </div>
-          <p className="mt-2 text-2xl font-black text-neutral-900">{candidates.length}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Invited / Shortlisted</span>
-            <Sparkles className="h-4 w-4 text-emerald-600" />
-          </div>
-          <p className="mt-2 text-2xl font-black text-emerald-700">
-            {candidates.filter((c) => c.assessmentStatus === 'INVITED' || c.assessmentStatus === 'SHORTLISTED').length}
-          </p>
-          <span className="text-[11px] text-neutral-400">ready for assessment</span>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Evaluated / Completed</span>
-            <CheckCircle2 className="h-4 w-4 text-blue-600" />
-          </div>
-          <p className="mt-2 text-2xl font-black text-neutral-900">
-            {candidates.filter((c) => c.assessmentStatus === 'COMPLETED' || c.assessmentStatus === 'EVALUATED').length}
-          </p>
-          <span className="text-[11px] text-neutral-400">graded profiles</span>
-        </div>
+        <MetricCard
+          label="Total Candidates"
+          value={candidates.length}
+          icon={Users}
+          iconColor="text-indigo-600"
+          iconBg="bg-indigo-50/80 border-indigo-100"
+        />
+        <MetricCard
+          label="Invited / Shortlisted"
+          value={candidates.filter((c) => c.assessmentStatus === 'INVITED' || c.assessmentStatus === 'SHORTLISTED').length}
+          subtext="ready for assessment"
+          icon={Sparkles}
+          iconColor="text-emerald-600"
+          iconBg="bg-emerald-50/80 border-emerald-100"
+        />
+        <MetricCard
+          label="Evaluated / Completed"
+          value={candidates.filter((c) => c.assessmentStatus === 'COMPLETED' || c.assessmentStatus === 'EVALUATED').length}
+          subtext="graded profiles"
+          icon={CheckCircle2}
+          iconColor="text-blue-600"
+          iconBg="bg-blue-50/80 border-blue-100"
+        />
       </div>
 
       {/* Search & Filters */}

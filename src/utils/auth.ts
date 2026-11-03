@@ -3,52 +3,90 @@ import { cookies, headers } from 'next/headers';
 import { prisma } from '@/database/db';
 
 export function getJwtSecret(): Uint8Array {
-  return new TextEncoder().encode(
-    process.env.JWT_SECRET || 'recruiter-assessment-platform-super-secret-key-123456789'
-  );
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('FATAL: JWT_SECRET environment variable is missing.');
+  }
+  return new TextEncoder().encode(secret);
 }
 
 export interface TokenPayload {
   id: string;
   name: string;
   email: string;
-  role: string;
+  role: 'ADMIN' | 'RECRUITER';
   [key: string]: any;
 }
 
-export async function signJWT(payload: TokenPayload): Promise<string> {
-  return new SignJWT(payload)
+export interface AuthenticatedUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'ADMIN' | 'RECRUITER';
+}
+
+/**
+ * Signs a short-lived access JWT valid for 1 hour.
+ * Ideal for high-speed API authorization with minimal exposure window.
+ */
+export async function signAccessToken(payload: TokenPayload): Promise<string> {
+  return new SignJWT({ ...payload, token_type: 'access' })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .sign(getJwtSecret());
+}
+
+/**
+ * Signs a long-lived refresh JWT valid for 7 days.
+ * Used to seamlessly rotate expired access tokens without re-login.
+ */
+export async function signRefreshToken(payload: TokenPayload): Promise<string> {
+  return new SignJWT({
+    id: payload.id,
+    name: payload.name,
+    email: payload.email,
+    role: payload.role,
+    token_type: 'refresh',
+  })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('7d')
     .sign(getJwtSecret());
 }
 
+/**
+ * Signs a secure JWT (defaults to 7d session, configurable).
+ */
+export async function signJWT(payload: TokenPayload, expiresIn: string = '7d'): Promise<string> {
+  return new SignJWT(payload)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(expiresIn)
+    .sign(getJwtSecret());
+}
+
+/**
+ * Cryptographically verifies a JWT (access or refresh).
+ * Strict signature validation — zero unverified token bypasses.
+ */
 export async function verifyJWT(token: string): Promise<TokenPayload | null> {
+  if (!token || typeof token !== 'string') return null;
   try {
-    const { payload } = await jwtVerify(token, getJwtSecret(), { clockTolerance: 120 });
+    const { payload } = await jwtVerify(token, getJwtSecret(), { clockTolerance: 30 });
     return payload as unknown as TokenPayload;
   } catch (err) {
-    // If strict verify failed, decode payload as fallback so minor clock or crypto difference doesn't log user out
-    try {
-      const parts = token.split('.');
-      if (parts.length === 3) {
-        const decoded = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-        if (decoded && decoded.id && (!decoded.exp || decoded.exp * 1000 > Date.now() - 120000)) {
-          return decoded as TokenPayload;
-        }
-      }
-    } catch {}
     return null;
   }
 }
 
+/**
+ * Checks whether the request is transmitted over HTTPS
+ */
 export function isRequestSecure(request: Request): boolean {
-  // Explicit environment override: COOKIE_SECURE=false or COOKIE_SECURE=true
   if (process.env.COOKIE_SECURE === 'true') return true;
   if (process.env.COOKIE_SECURE === 'false') return false;
 
-  // Never set secure cookie on IP addresses or localhost (browsers reject Secure cookies over HTTP IPs)
   const host = request.headers.get('host') || '';
   if (
     /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/.test(host) ||
@@ -58,7 +96,6 @@ export function isRequestSecure(request: Request): boolean {
     return false;
   }
 
-  // Check reverse-proxy protocol header (standard for Nginx, Cloudflare, Hostinger, etc.)
   const forwardedProto = request.headers.get('x-forwarded-proto');
   if (forwardedProto) {
     const proto = forwardedProto.split(',')[0].trim().toLowerCase();
@@ -66,22 +103,23 @@ export function isRequestSecure(request: Request): boolean {
     if (proto === 'http') return false;
   }
 
-  // Check request URL protocol
   try {
     const url = new URL(request.url);
     if (url.protocol === 'https:') return true;
-    if (url.protocol === 'http:') return false;
   } catch {}
 
-  // Default: NEVER secure unless explicitly verified to be HTTPS
   return false;
 }
 
-export async function getCurrentUser(req?: Request) {
+/**
+ * Resolves the authenticated user from the current request or Next.js headers/cookies.
+ * Returns null if the request is unauthenticated or token is invalid.
+ */
+export async function getCurrentUser(req?: Request): Promise<AuthenticatedUser | null> {
   try {
     let token: string | undefined;
 
-    // 1. Check direct request headers if passed
+    // 1. Check direct request headers if provided
     if (req) {
       const authHeader = req.headers.get('authorization');
       if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -124,58 +162,36 @@ export async function getCurrentUser(req?: Request) {
       } catch {}
     }
 
-    // If a token was provided, verify and decode it
-    if (token) {
-      const payload = await verifyJWT(token);
-      if (payload && payload.id) {
+    // Verify access token cryptographically
+    let payload = token ? await verifyJWT(token) : null;
+
+    // Fallback: Check refresh token if access token expired or missing
+    if (!payload) {
+      let refreshToken: string | undefined;
+      if (req) {
+        const cookieHeader = req.headers.get('cookie') || '';
+        const match = cookieHeader.match(/(?:^|;\s*)refresh_token=([^;]+)/);
+        if (match) refreshToken = decodeURIComponent(match[1]);
+      }
+      if (!refreshToken) {
         try {
-          let user = await prisma.user.findUnique({
-            where: { id: payload.id },
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              role: true,
-            },
-          });
-
-          if (!user && payload.email) {
-            user = await prisma.user.findFirst({
-              where: { email: { equals: payload.email, mode: 'insensitive' } },
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                role: true,
-              },
-            });
-          }
-
-          if (user) return user;
-        } catch (dbError) {
-          console.warn('Database lookup failed in getCurrentUser, falling back to token payload:', dbError);
-        }
-
-        // Return token payload user so authenticated user is never locked out
-        return {
-          id: payload.id,
-          name: payload.name || payload.email?.split('@')[0] || 'User',
-          email: payload.email,
-          role: (payload.role as any) || 'ADMIN',
-        };
+          const cookieStore = await cookies();
+          refreshToken = cookieStore.get('refresh_token')?.value;
+        } catch {}
+      }
+      if (refreshToken) {
+        payload = await verifyJWT(refreshToken);
       }
     }
 
-    // 4. Fallback: Proxy/Middleware is removed across all scenarios for now.
-    // Ensure any user accessing the platform can upload or update candidates and jobs without being blocked by Unauthorized.
+    if (!payload || !payload.id) {
+      return null;
+    }
+
+    // Verify user exists in database and has current role
     try {
-      let admin = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { role: 'ADMIN' },
-            { email: { equals: 'admin@gmail.com', mode: 'insensitive' } },
-          ],
-        },
+      const user = await prisma.user.findUnique({
+        where: { id: payload.id },
         select: {
           id: true,
           name: true,
@@ -184,46 +200,27 @@ export async function getCurrentUser(req?: Request) {
         },
       });
 
-      if (!admin) {
-        // Auto-seed admin user in the database so foreign keys (Job.createdBy, etc.) never fail
-        admin = await prisma.user.upsert({
-          where: { email: 'admin@gmail.com' },
-          update: {},
-          create: {
-            id: 'seeded-admin-user-id',
-            name: 'System Admin',
-            email: 'admin@gmail.com',
-            passwordHash: '$2a$10$3c6sF2F3M6E8I/kQ5k052uI1l1iXF7kUvT8pP7H3eE0vXq6kZpU1e',
-            role: 'ADMIN',
-          },
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            role: true,
-          },
-        });
+      if (user) {
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role as 'ADMIN' | 'RECRUITER',
+        };
       }
-
-      if (admin) return admin;
-    } catch (fallbackDbError) {
-      console.warn('Fallback admin resolution error in getCurrentUser:', fallbackDbError);
+    } catch (dbError) {
+      console.warn('Database lookup failed in getCurrentUser, falling back to verified token payload:', dbError);
     }
 
-    // 5. Final fallback guarantee
+    // Fallback only to the verified token's own payload if DB connection briefly fails
     return {
-      id: 'seeded-admin-user-id',
-      name: 'System Admin',
-      email: 'admin@gmail.com',
-      role: 'ADMIN' as const,
+      id: payload.id,
+      name: payload.name || payload.email?.split('@')[0] || 'User',
+      email: payload.email,
+      role: (payload.role as 'ADMIN' | 'RECRUITER') || 'RECRUITER',
     };
   } catch (error) {
     console.error('Error resolving current session user:', error);
-    return {
-      id: 'seeded-admin-user-id',
-      name: 'System Admin',
-      email: 'admin@gmail.com',
-      role: 'ADMIN' as const,
-    };
+    return null;
   }
 }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/utils/auth';
 import { prisma } from '@/database/db';
 import { sendShortlistInviteEmail } from '@/services/email';
+import { assertCandidateOwnership, AuthorizationError, NotFoundError } from '@/services/authz';
 
 export async function POST(
   request: Request,
@@ -16,17 +17,8 @@ export async function POST(
 
     const { id } = await params;
 
-    // Fetch candidate
-    const candidate = await prisma.candidate.findFirst({
-      where: { id },
-      include: {
-        job: { select: { title: true } },
-      },
-    });
-
-    if (!candidate) {
-      return NextResponse.json({ error: 'Candidate not found.' }, { status: 404 });
-    }
+    // Enforce candidate ownership derived from parent job
+    const candidate = await assertCandidateOwnership(id, user);
 
     let assessmentToken = candidate.assessmentToken;
     if (!assessmentToken) {
@@ -58,6 +50,12 @@ export async function POST(
 
     return NextResponse.json({ success: true, message: 'Candidate shortlisted successfully.' });
   } catch (error: any) {
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
     console.error('Error shortlisting candidate:', error);
     return NextResponse.json(
       { error: error.message || 'Internal Server Error' },

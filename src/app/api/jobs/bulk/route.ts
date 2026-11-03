@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/utils/auth';
 import { prisma } from '@/database/db';
-import { generateMockDataForJob } from '@/utils/mockGenerator';
 import { serializeBigInt } from '@/utils/serialize';
 
 export async function POST(req: Request) {
@@ -18,7 +17,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
     }
 
-    const secret = process.env.N8N_SHARED_SECRET || 'super-secret-key';
+    const secret = process.env.N8N_SHARED_SECRET || '';
     const webhookUrl = process.env.N8N_JD_WEBHOOK_URL;
     const activeWebhookUrl = customWebhookUrl || webhookUrl;
 
@@ -94,8 +93,6 @@ export async function POST(req: Request) {
         },
       });
 
-      // Synchronously generate mock questions & evaluation answers
-      await generateMockDataForJob(dbJob.id, dbJob.title || '', dbJob.experience || 'Not Specified');
       createdCount.push(dbJob.id);
     }
 
