@@ -51,6 +51,7 @@ export async function POST(request: Request) {
         assessmentStatus: assessmentStatus as any,
         assessmentToken,
         inviteSentAt: (assessmentToken ? new Date() : null) as any,
+        createdBy: user.id,
       },
     });
 

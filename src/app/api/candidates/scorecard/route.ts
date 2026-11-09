@@ -62,6 +62,14 @@ export async function GET(request: Request) {
     `;
 
     const params: any[] = [];
+
+    // Multi-tenant isolation: user can only access scorecards they own (or linked to their JDs)
+    // ADMIN can access all if explicitly needed, but standard is isolated to caller
+    if (user.role !== 'ADMIN') {
+      params.push(user.id);
+      query += ` AND (o.created_by = $${params.length} OR o.job_code IN (SELECT job_code FROM job_descriptions WHERE created_by = $${params.length}))`;
+    }
+
     if (id) {
       params.push(id);
       query += ` AND o.id = $${params.length}`;

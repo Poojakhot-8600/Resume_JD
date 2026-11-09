@@ -12,6 +12,13 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search')?.toLowerCase() || '';
+    const scopeParam = searchParams.get('scope');
+    const allForAdmin = user.role === 'ADMIN' && scopeParam === 'all';
+
+    // Strict multi-tenant user isolation:
+    // User sees ONLY their own job descriptions unless ADMIN explicitly requested scope=all.
+    const jdCondition = allForAdmin ? '' : 'WHERE jd.created_by = $1';
+    const jdParams = allForAdmin ? [] : [user.id];
 
     // Query job_descriptions joined with candidate counts from output table
     const res = await pool.query(`
@@ -23,6 +30,7 @@ export async function GET(request: Request) {
         jd.created_at as "createdAt",
         COALESCE(jd.status, 'Active') as "status",
         jd.inactive_at as "inactiveAt",
+        COALESCE(jd.created_by, '') as "createdBy",
         COALESCE(m.candidates_count, 0)::int as "candidatesCount"
       FROM job_descriptions jd
       LEFT JOIN (
@@ -31,8 +39,9 @@ export async function GET(request: Request) {
         WHERE job_code IS NOT NULL
         GROUP BY TRIM(job_code)
       ) m ON TRIM(m.job_code) = TRIM(jd.job_code)
+      ${jdCondition}
       ORDER BY jd.created_at DESC;
-    `);
+    `, jdParams);
 
     let jobDescriptions = res.rows;
 
@@ -45,6 +54,12 @@ export async function GET(request: Request) {
     }
 
     // Fetch matched candidates summary joined with candidate profiles from candidates table
+    // Strictly isolate output to records created by or belonging to user's JDs
+    const outCondition = allForAdmin
+      ? ''
+      : 'WHERE (o.created_by = $1 OR o.job_code IN (SELECT job_code FROM job_descriptions WHERE created_by = $1))';
+    const outParams = allForAdmin ? [] : [user.id];
+
     const candidatesRes = await pool.query(`
       SELECT 
         o.id,
@@ -78,6 +93,7 @@ export async function GET(request: Request) {
         o.recommended_next_step as "recommended_next_step",
         o.explanation,
         o.created_at as "createdAt",
+        COALESCE(o.created_by, '') as "createdBy",
         COALESCE(o.band, o.recommended_next_step, 'MATCHED') as "matchStatus",
         c.phone,
         c.current_job_title as "current_job_title",
@@ -87,14 +103,15 @@ export async function GET(request: Request) {
         COALESCE(c.candidate_location, c.candidate_address) as "location"
       FROM output o
       LEFT JOIN candidates c ON TRIM(c.candidate_id) = TRIM(o.candidate_id)
+      ${outCondition}
       ORDER BY o.match_percent DESC NULLS LAST;
-    `);
+    `, outParams);
 
-    // Fetch total distinct matched candidates across all jobs in output
-    const totalCandidatesRes = await pool.query(`
-      SELECT COUNT(DISTINCT candidate_id) as count
-      FROM output;
-    `).catch(() => ({ rows: [{ count: '0' }] }));
+    // Fetch total distinct matched candidates across user's jobs
+    const totalCountQuery = allForAdmin
+      ? 'SELECT COUNT(DISTINCT candidate_id) as count FROM output;'
+      : 'SELECT COUNT(DISTINCT candidate_id) as count FROM output WHERE created_by = $1 OR job_code IN (SELECT job_code FROM job_descriptions WHERE created_by = $1);';
+    const totalCandidatesRes = await pool.query(totalCountQuery, outParams).catch(() => ({ rows: [{ count: '0' }] }));
     const totalMatchedCandidates = parseInt(totalCandidatesRes.rows[0]?.count || '0', 10);
 
     const candidatesByJob: Record<string, any[]> = {};

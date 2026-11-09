@@ -120,12 +120,11 @@ export async function getBatchById(
 
   const row = res.rows[0];
 
-  // Authorization check if userId is provided
+  // Authorization check: strictly enforce that caller owns this batch
   if (
     userId &&
     row.user_id &&
     row.user_id !== 'system' &&
-    row.user_id !== 'seeded-admin-user-id' &&
     row.user_id !== userId
   ) {
     return { batch: null, unauthorized: true };
@@ -607,6 +606,18 @@ export async function processCandidateBatchAsync(
               [found.candidate_fname, found.candidate_lname].filter(Boolean).join(' ') ||
               fallbackName;
 
+            // Stamp created_by = userId in candidates and output
+            await pool.query(
+              `UPDATE candidates SET created_by = $1 WHERE id = $2 AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+              [userId, found.id]
+            ).catch(() => {});
+            if (found.candidate_id || email) {
+              await pool.query(
+                `UPDATE output SET created_by = $1 WHERE (candidate_id = $2 OR LOWER(candidate_email) = $3) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+                [userId, found.candidate_id || found.id, email || '']
+              ).catch(() => {});
+            }
+
             insertedRecords.push({
               file_name: item.file_name,
               candidate_id: found.candidate_id || found.id,
@@ -883,6 +894,13 @@ export async function processJobBatchAsync(
 
           if (queryRes.rows.length > 0) {
             const found = queryRes.rows[0];
+
+            // Stamp created_by = userId in job_descriptions
+            await pool.query(
+              `UPDATE job_descriptions SET created_by = $1 WHERE content_hash = $2 AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+              [userId, found.content_hash || sha256]
+            ).catch(() => {});
+
             insertedRecords.push({
               file_name: item.file_name,
               job_code: found.job_code || code || 'New JD',

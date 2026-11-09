@@ -99,6 +99,7 @@ model Candidate {
   assessmentStatus  AssessmentStatus? @default(INVITED)
   assessmentToken   String?           @unique // Secure, unguessable token
   inviteSentAt      DateTime?         @default(now())
+  createdBy         String?           @map("created_by")
 
   // Supabase candidate fields:
   yearsOfExperience Decimal?         @map("years_of_experience") @db.Decimal

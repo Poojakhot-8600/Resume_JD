@@ -82,6 +82,10 @@ export default function ResultsDashboard() {
   const [jobs, setJobs] = React.useState<JobMinimal[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   
+  // User role and administrative scope toggle ('mine' = strictly caller's results, 'all' = team-wide)
+  const [currentUser, setCurrentUser] = React.useState<any>(null);
+  const [adminScope, setAdminScope] = React.useState<'mine' | 'all'>('mine');
+
   // Filters
   const [searchQuery, setSearchQuery] = React.useState('');
   const [selectedJobId, setSelectedJobId] = React.useState('ALL');
@@ -90,40 +94,50 @@ export default function ResultsDashboard() {
   // Selected candidate result card
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    const loadResults = async () => {
-      try {
-        setIsLoading(true);
-        // Load candidates
-        const candRes = await fetch('/api/candidates');
-        const candData = await candRes.json();
-        if (candData.candidates) {
-          // Filter to only candidates who have completed or been evaluated
-          const completedCands = candData.candidates.filter(
-            (c: any) => c.assessmentStatus === 'COMPLETED' || c.assessmentStatus === 'EVALUATED'
-          );
-          setCandidates(completedCands);
+  const loadResults = async (scope = adminScope) => {
+    try {
+      setIsLoading(true);
+      const query = scope === 'all' ? '?scope=all' : '';
+      // Load candidates
+      const candRes = await fetch(`/api/candidates${query}`);
+      const candData = await candRes.json();
+      if (candData.candidates) {
+        // Filter to only candidates who have completed or been evaluated
+        const completedCands = candData.candidates.filter(
+          (c: any) => c.assessmentStatus === 'COMPLETED' || c.assessmentStatus === 'EVALUATED'
+        );
+        setCandidates(completedCands);
 
-          // Auto-select the first candidate if available
-          if (completedCands.length > 0) {
-            setSelectedId(completedCands[0].id);
-          }
+        // Auto-select the first candidate if available
+        if (completedCands.length > 0) {
+          setSelectedId(completedCands[0].id);
+        } else {
+          setSelectedId(null);
         }
-
-        // Load jobs for filters
-        const jobRes = await fetch('/api/jobs');
-        const jobData = await jobRes.json();
-        if (jobData.jobs) {
-          setJobs(jobData.jobs);
-        }
-      } catch (err) {
-        console.error('Error loading results:', err);
-      } finally {
-        setIsLoading(false);
       }
-    };
 
-    loadResults();
+      // Load jobs for filters
+      const jobRes = await fetch(`/api/jobs${query}`);
+      const jobData = await jobRes.json();
+      if (jobData.jobs) {
+        setJobs(jobData.jobs);
+      }
+    } catch (err) {
+      console.error('Error loading results:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    try {
+      const stored = localStorage.getItem('auth_user');
+      if (stored) {
+        setCurrentUser(JSON.parse(stored));
+      }
+    } catch {}
+
+    loadResults('mine');
   }, []);
 
   // Filter logic
@@ -166,6 +180,42 @@ export default function ResultsDashboard() {
             Detailed AI critiques, competence mapping, and real-time scores for candidate submissions.
           </p>
         </div>
+
+        {currentUser?.role === 'ADMIN' && (
+          <div className="flex items-center gap-1.5 self-start sm:self-auto">
+            <span className="text-xs text-neutral-500 font-medium">Filter View:</span>
+            <div className="inline-flex rounded-md p-0.5 bg-neutral-100 border border-neutral-200 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminScope('mine');
+                  loadResults('mine');
+                }}
+                className={`px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
+                  adminScope === 'mine'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                My Results
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminScope('all');
+                  loadResults('all');
+                }}
+                className={`px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
+                  adminScope === 'all'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                All Team Results
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Filters Bar */}
