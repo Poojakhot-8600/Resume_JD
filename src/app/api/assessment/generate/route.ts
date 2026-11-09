@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/database/db';
+import { serializeBigInt } from '@/utils/serialize';
 import { z } from 'zod';
 
 const generateSchema = z.object({
@@ -98,10 +99,15 @@ export async function POST(request: Request) {
       });
     }
 
-    // 6. Draw 20 random questions from Job's QuestionBank
-    const questionPool = await prisma.questionBank.findMany({
-      where: { positionId: candidate.positionId },
-    });
+    // 6. Use job_code from the linked job (job_descriptions table)
+    const jobCode = candidate.job?.jobCode || null;
+
+    // Draw 20 random questions from Job's QuestionBank (lookup by positionId BigInt)
+    const questionPool = candidate.positionId
+      ? await prisma.questionBank.findMany({
+          where: { positionId: candidate.positionId },
+        })
+      : [];
 
     let selectedQuestions: { id: string; question: string; topic: string }[] = [];
 
@@ -115,7 +121,7 @@ export async function POST(request: Request) {
       }));
     } else {
       // Fallback: If QuestionBank is empty, use mock generator
-      console.warn(`[API generate] QuestionBank is empty for job ${candidate.positionId.toString()}. Using mock questions fallback.`);
+      console.warn(`[API generate] QuestionBank is empty for job_code=${jobCode ?? 'unknown'}. Using mock questions fallback.`);
       const mockQuestions = [
         { id: 'mq1', question: `Describe a complex feature you built using React. What technical challenges did you face?`, topic: 'System Architecture' },
         { id: 'mq2', question: `What are your best-practice strategies for database schema design and migrations when working with SQL databases and Prisma?`, topic: 'Database & ORMs' },
@@ -126,10 +132,11 @@ export async function POST(request: Request) {
     }
 
     // 7. Store locked-in questions in database
+    //    jobId stores the BigInt position ID; jobCode from job_descriptions is available as candidate.job.jobCode
     const assessment = await prisma.assessment.create({
       data: {
         candidateId: candidate.id,
-        jobId: candidate.positionId,
+        jobId: candidate.positionId ?? null,
         questions: selectedQuestions as any,
         assignedQuestionIds: selectedQuestions.map((q) => q.id),
       },
@@ -141,10 +148,10 @@ export async function POST(request: Request) {
       data: { assessmentStatus: 'STARTED' },
     });
 
-    return NextResponse.json({
+    return NextResponse.json(serializeBigInt({
       success: true,
       assessment,
-    });
+    }));
   } catch (error: any) {
     console.error('Error generating assessment questions:', error);
     return NextResponse.json(

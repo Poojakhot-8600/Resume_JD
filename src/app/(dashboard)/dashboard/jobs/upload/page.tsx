@@ -62,6 +62,8 @@ interface BatchJDResult {
 
 import { UploadBatchResponse, UploadBatchStatusResponse, UploadRecordDetail } from '@/types';
 import { useBatchPolling } from '@/utils/useBatchPolling';
+import { WebhookConfigBanner } from '@/components/WebhookConfigBanner';
+import { apiFetch } from '@/utils/apiClient';
 
 export default function UploadJobDescriptionPage() {
   const router = useRouter();
@@ -78,6 +80,9 @@ export default function UploadJobDescriptionPage() {
   const [showManualInput, setShowManualInput] = useState(false);
   const [expandedFileIdx, setExpandedFileIdx] = useState<number | null>(null);
   const [copiedTextIdx, setCopiedTextIdx] = useState<number | null>(null);
+  const [envDefaultWebhook, setEnvDefaultWebhook] = useState<string>(
+    process.env.NEXT_PUBLIC_N8N_JD_WEBHOOK_URL || 'https://pooja456.app.n8n.cloud/webhook-test/jd-upload'
+  );
   const [webhookUrl, setWebhookUrl] = useState<string>(
     process.env.NEXT_PUBLIC_N8N_JD_WEBHOOK_URL || ''
   );
@@ -116,15 +121,17 @@ export default function UploadJobDescriptionPage() {
     const saved = localStorage.getItem('n8n_jd_webhook_url');
     if (saved && saved.trim()) {
       setWebhookUrl(saved.trim());
-      return;
     }
 
-    // Otherwise fetch the current .env webhook from the server
-    fetch('/api/settings/defaults')
+    // Always fetch the current .env webhook from the server
+    apiFetch('/api/settings/defaults')
       .then((res) => res.json())
       .then((data) => {
         if (data?.envJdWebhook) {
-          setWebhookUrl(data.envJdWebhook);
+          setEnvDefaultWebhook(data.envJdWebhook);
+          if (!saved || !saved.trim()) {
+            setWebhookUrl(data.envJdWebhook);
+          }
         }
       })
       .catch((err) => console.error('Failed to fetch JD webhook from settings:', err));
@@ -420,16 +427,14 @@ export default function UploadJobDescriptionPage() {
       }
 
       // Submit to backend API route and receive batch_id plus processing status
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      const res = await fetch('/api/jobs/upload-jd-file', {
+      const res = await apiFetch('/api/jobs/upload-jd-file', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        credentials: 'include',
         body: JSON.stringify({
           job_descriptions: jobDescriptionsPayload,
+          webhook_url: webhookUrl?.trim() || undefined,
         }),
       });
 
@@ -490,6 +495,15 @@ export default function UploadJobDescriptionPage() {
           </button>
         </div>
       </div>
+
+      {/* Webhook Configuration & Diagnostic Banner */}
+      <WebhookConfigBanner
+        title="Job Description n8n Webhook"
+        storageKey="n8n_jd_webhook_url"
+        currentUrl={webhookUrl}
+        onUrlChange={setWebhookUrl}
+        envDefaultUrl={envDefaultWebhook}
+      />
 
       {/* Error Banner */}
       {error && (

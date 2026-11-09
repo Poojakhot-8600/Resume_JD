@@ -16,7 +16,8 @@ export async function GET(request: Request) {
     const scopeParam = searchParams.get('scope');
     const allForAdmin = user.role === 'ADMIN' && scopeParam === 'all';
 
-    // Tenant-isolated query: user sees strictly their own candidates by default; only ADMIN with scope=all sees team candidates
+    // Tenant-isolated query: user sees strictly their own candidates by default;
+    // only ADMIN with scope=all sees all candidates
     const scope = getCandidateScope(user, { allForAdmin });
 
     const candidates = await prisma.candidate.findMany({
@@ -24,6 +25,7 @@ export async function GET(request: Request) {
       include: {
         job: {
           select: {
+            jobCode: true,
             title: true,
             createdBy: true,
             creator: {
@@ -46,7 +48,14 @@ export async function GET(request: Request) {
       },
     });
 
-    const serializedCandidates = serializeBigInt(candidates);
+    const formattedCandidates = candidates.map((c: any) => ({
+      ...c,
+      name: `${c.fname || ''} ${c.lname || ''}`.trim() || c.fname || 'Unnamed Candidate',
+      // Expose job_code as jobId for frontend compatibility
+      jobId: c.job?.jobCode || (c.positionId ? String(c.positionId) : ''),
+    }));
+
+    const serializedCandidates = serializeBigInt(formattedCandidates);
     return NextResponse.json({ success: true, candidates: serializedCandidates });
   } catch (error: any) {
     console.error('Error fetching candidates:', error);

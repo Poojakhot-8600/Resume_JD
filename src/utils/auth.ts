@@ -2,6 +2,25 @@ import { SignJWT, jwtVerify } from 'jose';
 import { cookies, headers } from 'next/headers';
 import { prisma } from '@/database/db';
 
+// ==============================================================================
+// CONFIGURATION CONSTANTS (read from environment, with secure defaults)
+// ==============================================================================
+export const SESSION_IDLE_TIMEOUT_MINUTES = parseInt(
+  process.env.SESSION_IDLE_TIMEOUT_MINUTES || '20',
+  10
+);
+export const SESSION_WARNING_SECONDS = parseInt(
+  process.env.SESSION_WARNING_SECONDS || '60',
+  10
+);
+export const SESSION_MAX_HOURS = parseInt(
+  process.env.SESSION_MAX_HOURS || '8',
+  10
+);
+export const COOKIE_NAME = process.env.COOKIE_NAME || 'auth_token';
+export const COOKIE_SAMESITE = (process.env.COOKIE_SAMESITE as 'lax' | 'strict' | 'none') || 'lax';
+export const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN ? process.env.COOKIE_DOMAIN.trim() : undefined;
+
 export function getJwtSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
@@ -106,9 +125,27 @@ export function isRequestSecure(request: Request): boolean {
   try {
     const url = new URL(request.url);
     if (url.protocol === 'https:') return true;
-  } catch {}
+  } catch { }
 
   return false;
+}
+
+/**
+ * Standardized cookie options according to environment configuration.
+ */
+export function getAuthCookieOptions(request?: Request, maxAgeSeconds?: number) {
+  const secure = request ? isRequestSecure(request) : (process.env.COOKIE_SECURE === 'true');
+  const maxAge = maxAgeSeconds !== undefined ? maxAgeSeconds : (SESSION_IDLE_TIMEOUT_MINUTES * 60);
+
+  return {
+    name: COOKIE_NAME,
+    httpOnly: true,
+    secure,
+    sameSite: COOKIE_SAMESITE as 'lax' | 'strict' | 'none',
+    path: '/',
+    domain: COOKIE_DOMAIN || undefined,
+    maxAge,
+  };
 }
 
 /**
@@ -130,7 +167,7 @@ export async function getCurrentUser(req?: Request): Promise<AuthenticatedUser |
       }
       if (!token) {
         const cookieHeader = req.headers.get('cookie') || '';
-        const match = cookieHeader.match(/(?:^|;\s*)auth_token=([^;]+)/);
+        const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
         if (match) token = decodeURIComponent(match[1]);
       }
     }
@@ -148,18 +185,18 @@ export async function getCurrentUser(req?: Request): Promise<AuthenticatedUser |
         }
         if (!token) {
           const cookieHeader = headerList.get('cookie') || '';
-          const match = cookieHeader.match(/(?:^|;\s*)auth_token=([^;]+)/);
+          const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
           if (match) token = decodeURIComponent(match[1]);
         }
-      } catch {}
+      } catch { }
     }
 
     // 3. Check Next.js cookies store
     if (!token) {
       try {
         const cookieStore = await cookies();
-        token = cookieStore.get('auth_token')?.value;
-      } catch {}
+        token = cookieStore.get(COOKIE_NAME)?.value;
+      } catch { }
     }
 
     // Verify access token cryptographically
@@ -177,7 +214,7 @@ export async function getCurrentUser(req?: Request): Promise<AuthenticatedUser |
         try {
           const cookieStore = await cookies();
           refreshToken = cookieStore.get('refresh_token')?.value;
-        } catch {}
+        } catch { }
       }
       if (refreshToken) {
         payload = await verifyJWT(refreshToken);

@@ -109,7 +109,7 @@ export async function POST(request: Request) {
       await prisma.user.update({
         where: { id: user.id },
         data: { passwordHash: updatedHash },
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     // Issue short-lived Access Token (1 hour) and long-lived Refresh Token (7 days)

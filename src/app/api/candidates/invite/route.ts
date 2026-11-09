@@ -21,10 +21,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Name, email, and job are required.' }, { status: 400 });
     }
 
-    const positionId = BigInt(parseInt(jobId.toString(), 10));
+    // jobId can be either a BigInt ID string (e.g. "1100112") or a job_code string (e.g. "JOB-1100112")
+    // Try to find job by job_code first, then fall back to numeric ID
+    let job = await prisma.job.findFirst({ where: { jobCode: jobId.toString() } });
+    if (!job) {
+      const numericId = parseInt(jobId.toString(), 10);
+      if (!isNaN(numericId)) {
+        job = await prisma.job.findUnique({ where: { id: BigInt(numericId) } });
+      }
+    }
 
-    // Verify job exists and caller has ownership (or is ADMIN)
-    const job = await assertJobOwnership(positionId, user);
+    if (!job) {
+      return NextResponse.json({ error: `Job not found: ${jobId}` }, { status: 404 });
+    }
+
+    // Verify caller has ownership (or is ADMIN)
+    await assertJobOwnership(job.id, user);
 
     // Generate unique unguessable token unless explicitly null/empty
     const assessmentToken = (reqToken === null || reqToken === '') ? null : (reqToken || crypto.randomUUID());
@@ -39,10 +51,10 @@ export async function POST(request: Request) {
     const lname = nameParts.slice(1).join(' ') || '.';
     const candidateId = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Create candidate record
+    // Create candidate record — link via positionId (BigInt FK to job_descriptions.id)
     const candidate = await prisma.candidate.create({
       data: {
-        positionId,
+        positionId: job.id,
         candidateId,
         fname,
         lname,

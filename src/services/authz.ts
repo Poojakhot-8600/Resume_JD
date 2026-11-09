@@ -37,7 +37,7 @@ export function getJobScope(
 
 /**
  * Returns Prisma filter for Candidates based on caller's role and requested scope.
- * - By default: strictly isolated to the authenticated user's candidates (createdBy === user.id OR job.createdBy === user.id).
+ * - By default: strictly isolated to the authenticated user's candidates (job.createdBy === user.id).
  * - allForAdmin (optional): if caller is ADMIN and explicitly requests team view, returns unrestricted scope.
  */
 export function getCandidateScope(
@@ -48,10 +48,7 @@ export function getCandidateScope(
     return {};
   }
   return {
-    OR: [
-      { createdBy: user.id },
-      { job: { createdBy: user.id } },
-    ],
+    job: { createdBy: user.id },
   };
 }
 
@@ -84,7 +81,7 @@ export async function assertJobOwnership(
 
 /**
  * Asserts that the authenticated user has authorization to access/modify a specific Candidate.
- * Enforces strict user isolation: caller must be candidate creator or parent job creator.
+ * Enforces strict user isolation: caller must own the parent job.
  * Prevents IDOR vulnerabilities.
  */
 export async function assertCandidateOwnership(
@@ -98,6 +95,7 @@ export async function assertCandidateOwnership(
       job: {
         select: {
           id: true,
+          jobCode: true,
           title: true,
           createdBy: true,
         },
@@ -109,13 +107,11 @@ export async function assertCandidateOwnership(
     throw new NotFoundError(`Candidate ${candidateId} not found.`);
   }
 
-  const isOwner =
-    candidate.createdBy === user.id ||
-    candidate.job?.createdBy === user.id ||
-    (Boolean(options?.allowAdminOverride) && user.role === 'ADMIN');
-
-  if (!isOwner) {
-    throw new AuthorizationError('Forbidden: You do not have permission to access or modify this candidate.');
+  // ADMIN can always access; RECRUITER must own the linked job
+  if (user.role !== 'ADMIN') {
+    if (!candidate.job || candidate.job.createdBy !== user.id) {
+      throw new AuthorizationError('Forbidden: You do not have permission to access or modify this candidate.');
+    }
   }
 
   return candidate;
