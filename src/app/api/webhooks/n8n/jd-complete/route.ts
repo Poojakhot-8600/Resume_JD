@@ -26,11 +26,12 @@ const jdCompleteSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    // 1. Shared secret authentication check
-    const webhookSecret = process.env.N8N_SHARED_SECRET || 'super-secret-key';
+    // 1. Shared secret authentication check (timing-safe comparison)
+    const webhookSecret = process.env.N8N_SHARED_SECRET || '';
     const clientSecret = request.headers.get('x-webhook-secret') || request.headers.get('x-n8n-secret');
 
-    if (!clientSecret || clientSecret !== webhookSecret) {
+    const { verifyTimingSafeSecret } = await import('@/services/authz');
+    if (!verifyTimingSafeSecret(clientSecret, webhookSecret)) {
       return NextResponse.json({ error: 'Unauthorized webhook request.' }, { status: 401 });
     }
 

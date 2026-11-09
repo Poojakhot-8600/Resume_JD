@@ -318,15 +318,14 @@ export async function checkCandidateDuplicatesInSupabase(
     if (candidateEmail) seenEmailsInBatch.add(candidateEmail);
 
     try {
-      // Query Supabase candidates table for matching email, content_hash, or resume_text
+      // Query Supabase candidate1 table for matching email or resume_text
       const queryRes = await pool.query(
         `SELECT id, candidate_id, candidate_fname, candidate_lname, candidate_email 
-         FROM candidates 
+         FROM candidate1 
          WHERE ($1::text IS NOT NULL AND LOWER(TRIM(candidate_email)) = $1)
-            OR content_hash = $2
-            OR resume_text = $3
+            OR resume_text = $2
          LIMIT 1;`,
-        [candidateEmail, sha256, textVal]
+        [candidateEmail, textVal]
       );
 
       if (queryRes.rows.length > 0) {

@@ -22,93 +22,89 @@ export const COOKIE_SAMESITE = (process.env.COOKIE_SAMESITE as 'lax' | 'strict' 
 export const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN ? process.env.COOKIE_DOMAIN.trim() : undefined;
 
 export function getJwtSecret(): Uint8Array {
-  return new TextEncoder().encode(
-    process.env.JWT_SECRET || 'recruiter-assessment-platform-super-secret-key-123456789'
-  );
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('FATAL: JWT_SECRET environment variable is missing.');
+  }
+  return new TextEncoder().encode(secret);
 }
 
 export interface TokenPayload {
   id: string;
   name: string;
   email: string;
-  role: string;
-  auth_time?: number; // Unix timestamp in seconds of original login
-  iat?: number;
-  exp?: number;
+  role: 'ADMIN' | 'RECRUITER';
   [key: string]: any;
 }
 
-/**
- * Signs a JWT with:
- * - sliding 20-minute expiration (or SESSION_IDLE_TIMEOUT_MINUTES)
- * - original login timestamp (auth_time)
- * - absolute cap at SESSION_MAX_HOURS from auth_time
- */
-export async function signJWT(
-  payload: TokenPayload,
-  slidingMinutes?: number,
-  originalAuthTime?: number
-): Promise<string> {
-  const nowSec = Math.floor(Date.now() / 1000);
-  const authTime = originalAuthTime ?? payload.auth_time ?? nowSec;
-  const idleMin = slidingMinutes ?? SESSION_IDLE_TIMEOUT_MINUTES;
-  const maxExp = authTime + SESSION_MAX_HOURS * 3600;
-  const targetExp = Math.min(nowSec + idleMin * 60, maxExp);
+export interface AuthenticatedUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'ADMIN' | 'RECRUITER';
+}
 
+/**
+ * Signs a short-lived access JWT valid for 1 hour.
+ * Ideal for high-speed API authorization with minimal exposure window.
+ */
+export async function signAccessToken(payload: TokenPayload): Promise<string> {
+  return new SignJWT({ ...payload, token_type: 'access' })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .sign(getJwtSecret());
+}
+
+/**
+ * Signs a long-lived refresh JWT valid for 7 days.
+ * Used to seamlessly rotate expired access tokens without re-login.
+ */
+export async function signRefreshToken(payload: TokenPayload): Promise<string> {
   return new SignJWT({
     id: payload.id,
     name: payload.name,
     email: payload.email,
     role: payload.role,
-    auth_time: authTime,
+    token_type: 'refresh',
   })
     .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt(nowSec)
-    .setExpirationTime(targetExp)
+    .setIssuedAt()
+    .setExpirationTime('7d')
     .sign(getJwtSecret());
 }
 
 /**
- * Strictly verifies JWT signature, exp, and absolute session duration limit.
- * Returns null if missing, invalid, or expired.
+ * Signs a secure JWT (defaults to 7d session, configurable).
+ */
+export async function signJWT(payload: TokenPayload, expiresIn: string = '7d'): Promise<string> {
+  return new SignJWT(payload)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(expiresIn)
+    .sign(getJwtSecret());
+}
+
+/**
+ * Cryptographically verifies a JWT (access or refresh).
+ * Strict signature validation — zero unverified token bypasses.
  */
 export async function verifyJWT(token: string): Promise<TokenPayload | null> {
   if (!token || typeof token !== 'string') return null;
-
   try {
-    const { payload } = await jwtVerify(token, getJwtSecret(), { clockTolerance: 10 });
-    const verified = payload as unknown as TokenPayload;
-
-    const nowSec = Math.floor(Date.now() / 1000);
-
-    // 1. Check expiration
-    if (verified.exp && nowSec >= verified.exp) {
-      return null;
-    }
-
-    // 2. Check absolute session lifespan cap (SESSION_MAX_HOURS from original login)
-    if (verified.auth_time) {
-      const maxAllowedSec = verified.auth_time + SESSION_MAX_HOURS * 3600;
-      if (nowSec >= maxAllowedSec) {
-        return null;
-      }
-    }
-
-    return verified;
+    const { payload } = await jwtVerify(token, getJwtSecret(), { clockTolerance: 30 });
+    return payload as unknown as TokenPayload;
   } catch (err) {
     return null;
   }
 }
 
 /**
- * Determines whether the cookie should have the Secure attribute.
- * Respects explicit COOKIE_SECURE environment variable, never enables Secure on localhost/IP over HTTP.
+ * Checks whether the request is transmitted over HTTPS
  */
-export function isRequestSecure(request?: Request): boolean {
+export function isRequestSecure(request: Request): boolean {
   if (process.env.COOKIE_SECURE === 'true') return true;
   if (process.env.COOKIE_SECURE === 'false') return false;
-
-  if (!request) return false;
 
   const host = request.headers.get('host') || '';
   if (
@@ -129,23 +125,23 @@ export function isRequestSecure(request?: Request): boolean {
   try {
     const url = new URL(request.url);
     if (url.protocol === 'https:') return true;
-  } catch {}
+  } catch { }
 
   return false;
 }
 
 /**
- * Returns standardized cookie options according to environment configuration.
+ * Standardized cookie options according to environment configuration.
  */
 export function getAuthCookieOptions(request?: Request, maxAgeSeconds?: number) {
-  const secure = isRequestSecure(request);
-  const maxAge = maxAgeSeconds ?? (SESSION_IDLE_TIMEOUT_MINUTES * 60);
+  const secure = request ? isRequestSecure(request) : (process.env.COOKIE_SECURE === 'true');
+  const maxAge = maxAgeSeconds !== undefined ? maxAgeSeconds : (SESSION_IDLE_TIMEOUT_MINUTES * 60);
 
   return {
     name: COOKIE_NAME,
     httpOnly: true,
     secure,
-    sameSite: COOKIE_SAMESITE,
+    sameSite: COOKIE_SAMESITE as 'lax' | 'strict' | 'none',
     path: '/',
     domain: COOKIE_DOMAIN || undefined,
     maxAge,
@@ -153,14 +149,14 @@ export function getAuthCookieOptions(request?: Request, maxAgeSeconds?: number) 
 }
 
 /**
- * Resolves the authenticated user from Request headers, cookies, or Next.js headers.
- * Returns null if the token is missing, invalid, or expired.
+ * Resolves the authenticated user from the current request or Next.js headers/cookies.
+ * Returns null if the request is unauthenticated or token is invalid.
  */
-export async function getCurrentUser(req?: Request) {
+export async function getCurrentUser(req?: Request): Promise<AuthenticatedUser | null> {
   try {
     let token: string | undefined;
 
-    // 1. Check direct request headers / cookies if Request object passed
+    // 1. Check direct request headers if provided
     if (req) {
       const authHeader = req.headers.get('authorization');
       if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -192,7 +188,7 @@ export async function getCurrentUser(req?: Request) {
           const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
           if (match) token = decodeURIComponent(match[1]);
         }
-      } catch {}
+      } catch { }
     }
 
     // 3. Check Next.js cookies store
@@ -200,23 +196,38 @@ export async function getCurrentUser(req?: Request) {
       try {
         const cookieStore = await cookies();
         token = cookieStore.get(COOKIE_NAME)?.value;
-      } catch {}
+      } catch { }
     }
 
-    // If no token found, user is unauthenticated
-    if (!token) {
-      return null;
+    // Verify access token cryptographically
+    let payload = token ? await verifyJWT(token) : null;
+
+    // Fallback: Check refresh token if access token expired or missing
+    if (!payload) {
+      let refreshToken: string | undefined;
+      if (req) {
+        const cookieHeader = req.headers.get('cookie') || '';
+        const match = cookieHeader.match(/(?:^|;\s*)refresh_token=([^;]+)/);
+        if (match) refreshToken = decodeURIComponent(match[1]);
+      }
+      if (!refreshToken) {
+        try {
+          const cookieStore = await cookies();
+          refreshToken = cookieStore.get('refresh_token')?.value;
+        } catch { }
+      }
+      if (refreshToken) {
+        payload = await verifyJWT(refreshToken);
+      }
     }
 
-    // Verify token expiration and signature
-    const payload = await verifyJWT(token);
     if (!payload || !payload.id) {
       return null;
     }
 
-    // Look up user in database
+    // Verify user exists in database and has current role
     try {
-      let user = await prisma.user.findUnique({
+      const user = await prisma.user.findUnique({
         where: { id: payload.id },
         select: {
           id: true,
@@ -226,32 +237,27 @@ export async function getCurrentUser(req?: Request) {
         },
       });
 
-      if (!user && payload.email) {
-        user = await prisma.user.findFirst({
-          where: { email: { equals: payload.email, mode: 'insensitive' } },
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            role: true,
-          },
-        });
+      if (user) {
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role as 'ADMIN' | 'RECRUITER',
+        };
       }
-
-      if (user) return user;
     } catch (dbError) {
-      console.warn('[auth] DB lookup error in getCurrentUser, using verified token payload:', dbError);
+      console.warn('Database lookup failed in getCurrentUser, falling back to verified token payload:', dbError);
     }
 
-    // Fall back to verified token payload
+    // Fallback only to the verified token's own payload if DB connection briefly fails
     return {
       id: payload.id,
       name: payload.name || payload.email?.split('@')[0] || 'User',
       email: payload.email,
-      role: (payload.role as any) || 'RECRUITER',
+      role: (payload.role as 'ADMIN' | 'RECRUITER') || 'RECRUITER',
     };
   } catch (error) {
-    console.error('[auth] Error in getCurrentUser:', error);
+    console.error('Error resolving current session user:', error);
     return null;
   }
 }

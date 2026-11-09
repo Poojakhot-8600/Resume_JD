@@ -3,6 +3,8 @@ import { getCurrentUser } from '@/utils/auth';
 import { prisma } from '@/database/db';
 import { sendAssessmentInviteEmail } from '@/services/email';
 import { serializeBigInt } from '@/utils/serialize';
+import { assertJobOwnership, AuthorizationError, NotFoundError } from '@/services/authz';
+import crypto from 'crypto';
 
 export async function POST(request: Request) {
   try {
@@ -19,23 +21,29 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Name, email, and job are required.' }, { status: 400 });
     }
 
-    const positionId = BigInt(parseInt(jobId.toString(), 10));
-
-    // Check if job exists
-    const job = await prisma.job.findUnique({
-      where: { id: positionId },
-    });
+    // jobId can be either a BigInt ID string (e.g. "1100112") or a job_code string (e.g. "JOB-1100112")
+    // Try to find job by job_code first, then fall back to numeric ID
+    let job = await prisma.job.findFirst({ where: { jobCode: jobId.toString() } });
+    if (!job) {
+      const numericId = parseInt(jobId.toString(), 10);
+      if (!isNaN(numericId)) {
+        job = await prisma.job.findUnique({ where: { id: BigInt(numericId) } });
+      }
+    }
 
     if (!job) {
-      return NextResponse.json({ error: 'Selected job position not found.' }, { status: 404 });
+      return NextResponse.json({ error: `Job not found: ${jobId}` }, { status: 404 });
     }
+
+    // Verify caller has ownership (or is ADMIN)
+    await assertJobOwnership(job.id, user);
 
     // Generate unique unguessable token unless explicitly null/empty
     const assessmentToken = (reqToken === null || reqToken === '') ? null : (reqToken || crypto.randomUUID());
 
     // Determine status: explicitly null/empty or fallback to status or INVITED
-    const assessmentStatus = (reqStatus === null || reqStatus === '') 
-      ? null 
+    const assessmentStatus = (reqStatus === null || reqStatus === '')
+      ? null
       : (reqStatus || (assessmentToken ? 'INVITED' : null));
 
     const nameParts = name.trim().split(/\s+/);
@@ -43,10 +51,10 @@ export async function POST(request: Request) {
     const lname = nameParts.slice(1).join(' ') || '.';
     const candidateId = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Create candidate record
+    // Create candidate record — link via positionId (BigInt FK to job_descriptions.id)
     const candidate = await prisma.candidate.create({
       data: {
-        positionId,
+        positionId: job.id,
         candidateId,
         fname,
         lname,
@@ -70,6 +78,12 @@ export async function POST(request: Request) {
 
     return NextResponse.json(serializeBigInt({ success: true, candidate }));
   } catch (error: any) {
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
+    if (error instanceof NotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
     console.error('Error inviting candidate:', error);
     return NextResponse.json(
       { error: error.message || 'Internal Server Error' },

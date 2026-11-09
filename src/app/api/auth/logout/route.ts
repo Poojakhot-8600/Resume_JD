@@ -7,9 +7,21 @@ export async function POST(request: Request) {
     const cookieOpts = getAuthCookieOptions(request, 0);
     const cookieStore = await cookies();
 
-    // Clear session cookie in cookieStore
+    // 1. Clear access token cookie in cookieStore
     cookieStore.set(cookieOpts.name, '', {
       ...cookieOpts,
+      maxAge: 0,
+      expires: new Date(0),
+    });
+
+    // 2. Clear refresh token cookie in cookieStore
+    cookieStore.set({
+      name: 'refresh_token',
+      value: '',
+      httpOnly: true,
+      secure: cookieOpts.secure,
+      sameSite: cookieOpts.sameSite,
+      path: '/',
       maxAge: 0,
       expires: new Date(0),
     });
@@ -25,9 +37,20 @@ export async function POST(request: Request) {
       }
     );
 
-    // Also clear cookie on response directly to ensure client browser drops it
+    // 3. Clear cookies on response headers directly to ensure client browser drops them
     response.cookies.set(cookieOpts.name, '', {
       ...cookieOpts,
+      maxAge: 0,
+      expires: new Date(0),
+    });
+
+    response.cookies.set({
+      name: 'refresh_token',
+      value: '',
+      httpOnly: true,
+      secure: cookieOpts.secure,
+      sameSite: cookieOpts.sameSite,
+      path: '/',
       maxAge: 0,
       expires: new Date(0),
     });

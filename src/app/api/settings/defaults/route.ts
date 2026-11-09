@@ -8,6 +8,11 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Platform settings & secret credentials are restricted strictly to ADMIN
+    if (user.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Forbidden: Super Admin access required' }, { status: 403 });
+    }
+
     return NextResponse.json({
       envJdWebhook: process.env.N8N_JD_WEBHOOK_URL || '',
       envCandidateWebhook:

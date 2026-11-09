@@ -50,7 +50,7 @@ export default function UploadCandidateResumePage() {
     process.env.NEXT_PUBLIC_N8N_CANDIDATE_RESUME_WEBHOOK_URL || 'https://pooja456.app.n8n.cloud/webhook-test/resume-insert'
   );
   const [webhookUrl, setWebhookUrl] = useState<string>(
-    process.env.NEXT_PUBLIC_N8N_CANDIDATE_RESUME_WEBHOOK_URL || 'https://pooja456.app.n8n.cloud/webhook-test/resume-insert'
+    process.env.NEXT_PUBLIC_N8N_CANDIDATE_RESUME_WEBHOOK_URL || ''
   );
 
   const {

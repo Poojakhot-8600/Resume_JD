@@ -19,101 +19,15 @@ export default function JobDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'details' | 'questions'>('details');
 
-  const get150MockQuestions = (title: string): Question[] => {
-    const topics = [
-      { name: "Frontend Core", skills: ["React", "CSS Layouts", "TypeScript type-guards", "Next.js routing", "Zustand state"] },
-      { name: "Backend Systems", skills: ["Node.js microservices", "REST API routes", "Express middleware", "GraphQL schemas", "gRPC proto contracts"] },
-      { name: "Database Design", skills: ["SQL indexing", "Relational Normalization", "Prisma ORM transactions", "Redis caches", "PostgreSQL tables"] },
-      { name: "System Design", skills: ["Distributed Caching", "Load Balancers", "Message Queues", "Horizontal Auto-scaling", "API Gateways"] },
-      { name: "Security & Auth", skills: ["JWT signatures", "OAuth token flows", "HTTPS TLS handshakes", "CORS policies", "Data Encryption"] },
-      { name: "DevOps & CI/CD", skills: ["Docker container configs", "Kubernetes cluster state", "GitHub Actions workflows", "AWS ECS tasks", "Infrastructure as Code"] },
-    ];
-
-    const questionTemplates = [
-      {
-        q: "How would you optimize a performance bottleneck in {skill} during production deployments?",
-        opts: ["Configure in-memory caching and memoization rules", "Double the CPU size of the database host node", "Rewrite the codebase scripts", "Disable diagnostic logging layers"],
-        ans: "Configure in-memory caching and memoization rules"
-      },
-      {
-        q: "What is the primary architectural trade-off when implementing {skill} structures?",
-        opts: ["Increased setup complexity vs long-term scalability and audit logs", "High memory footprints vs minor disk space gains", "Single-threaded limits vs native multi-core processes", "Database connection leaks vs low lock latency"],
-        ans: "Increased setup complexity vs long-term scalability and audit logs"
-      },
-      {
-        q: "Which protocol is considered best practice when coordinating {skill} interfaces?",
-        opts: ["Structured JSON payloads over secure HTTPS channels", "Raw TCP packet streams without handshakes", "Short polling requests every 10 milliseconds", "Direct file system triggers"],
-        ans: "Structured JSON payloads over secure HTTPS channels"
-      },
-      {
-        q: "In a high-throughput application utilizing {skill}, how do you prevent data race conditions?",
-        opts: ["Implement optimistic locking and transactions", "Restrict application runtime to a single thread", "Disable query indexes during updates", "Inject standard setTimeout delays"],
-        ans: "Implement optimistic locking and transactions"
-      },
-      {
-        q: "Which hook or function is standard for initializing state in {skill} contexts?",
-        opts: ["Lifecycle callbacks / state hooks", "Basic console debugger statements", "Custom action button click handlers", "Direct DOM query selector overrides"],
-        ans: "Lifecycle callbacks / state hooks"
-      }
-    ];
-
-    const list: Question[] = [];
-    while (list.length < 150) {
-      const topic = topics[list.length % topics.length];
-      const skill = topic.skills[Math.floor(list.length / topics.length) % topic.skills.length];
-      const template = questionTemplates[list.length % questionTemplates.length];
-
-      const formattedQ = template.q.replace("{skill}", skill);
-      const rawOpts = template.opts.map(opt => opt.replace("{skill}", skill));
-      const formattedAns = template.ans.replace("{skill}", skill);
-
-      // Shuffle options randomly to distribute correct answer key across A, B, C, D
-      const formattedOpts = [...rawOpts];
-      for (let i = formattedOpts.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        const temp = formattedOpts[i];
-        formattedOpts[i] = formattedOpts[j];
-        formattedOpts[j] = temp;
-      }
-
-      list.push({
-        id: `mock-q-${list.length + 1}`,
-        question: `[MCQ-${list.length + 1}] ${formattedQ}`,
-        options: formattedOpts,
-        answer: formattedAns,
-        topic: topic.name
-      });
-    }
-    return list;
-  };
-
-  const fetchJobDetails = async () => {
+  const fetchJobDetails = React.useCallback(async () => {
+    if (!id) return;
     try {
       setIsLoading(true);
       const res = await fetch(`/api/jobs/${id}`);
       if (!res.ok) throw new Error('Failed to fetch job details');
       const data = await res.json();
       if (data.job) {
-        const jobRecord = { ...data.job };
-
-        // Frontend mock fallback injection if empty or contains legacy/fewer questions (e.g. less than 50)
-        if (!jobRecord.questions || jobRecord.questions.length < 50) {
-          jobRecord.questions = get150MockQuestions(jobRecord.title);
-          jobRecord.status = 'ACTIVE';
-
-          if (!jobRecord.parsedJDData || Object.keys(jobRecord.parsedJDData).length === 0) {
-            jobRecord.parsedJDData = {
-              seniority: 'Mid-Level',
-              experience: jobRecord.experience || '3+ years',
-              topics: ['Frontend Core', 'Backend Systems', 'Database Design', 'System Design', 'Security & Auth', 'DevOps & CI/CD'],
-              mustHave: [`3+ years as a ${jobRecord.title}`, 'Strong software engineering foundations'],
-              goodToHave: ['CI/CD pipeline configuration', 'Familiarity with database tuning'],
-              weights: { 'Frontend Core': 20, 'Database Design': 20, 'API Standards': 15, 'Node.js Core': 15, 'System Design': 15, 'DevOps & Deployment': 15 }
-            };
-          }
-        }
-
-        setJob(jobRecord);
+        setJob(data.job);
       } else {
         throw new Error('Job not found');
       }
@@ -122,13 +36,11 @@ export default function JobDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
-    if (id) {
-      fetchJobDetails();
-    }
-  }, [id]);
+    fetchJobDetails();
+  }, [fetchJobDetails]);
 
   if (isLoading) {
     return (

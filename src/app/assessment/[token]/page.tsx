@@ -109,10 +109,15 @@ export default function CandidateAssessmentPortal() {
     }
   };
 
-  const handleAutoSubmit = () => {
+  const submitAnswersRef = React.useRef(submitAnswers);
+  React.useEffect(() => {
+    submitAnswersRef.current = submitAnswers;
+  });
+
+  const handleAutoSubmit = React.useCallback(() => {
     console.log('[Timer Exhausted] Auto-submitting answers...');
-    submitAnswers();
-  };
+    submitAnswersRef.current();
+  }, []);
 
   // Timer countdown hook
   React.useEffect(() => {
@@ -128,7 +133,7 @@ export default function CandidateAssessmentPortal() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [timeLeft, portalState]);
+  }, [timeLeft, portalState, handleAutoSubmit]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);

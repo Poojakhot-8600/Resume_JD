@@ -323,16 +323,15 @@ export async function preCheckDuplicatesInSupabase(
       seenHashes.add(sha256);
       if (email) seenEmails.add(email);
 
-      // Check existing in Supabase candidates table
+      // Check existing in Supabase candidate1 table
       try {
         const queryRes = await pool.query(
           `SELECT id, candidate_id, candidate_fname, candidate_lname, candidate_email
-           FROM candidates
+           FROM candidate1
            WHERE ($1::text IS NOT NULL AND LOWER(TRIM(candidate_email)) = $1)
-              OR content_hash = $2
-              OR resume_text = $3
+              OR resume_text = $2
            LIMIT 1;`,
-          [email, sha256, textVal]
+          [email, textVal]
         );
 
         if (queryRes.rows.length > 0) {
@@ -609,13 +608,12 @@ export async function processCandidateBatchAsync(
         try {
           const queryRes = await pool.query(
             `SELECT id, candidate_id, candidate_fname, candidate_lname, candidate_email, created_at
-             FROM candidates
+             FROM candidate1
              WHERE upload_batch_id = $1
                 OR ($2::text IS NOT NULL AND LOWER(TRIM(candidate_email)) = $2)
-                OR content_hash = $3
-                OR resume_text = $4
+                OR resume_text = $3
              LIMIT 1;`,
-            [batchId, email, sha256, textVal]
+            [batchId, email, textVal]
           );
 
           if (queryRes.rows.length > 0) {

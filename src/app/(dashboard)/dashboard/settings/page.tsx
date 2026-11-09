@@ -96,7 +96,7 @@ export default function SettingsPage() {
   // Determine active values (custom overrides take precedence over env variables)
   const activeJdWebhook = jdWebhook.trim() || envConfigs.jdWebhook;
   const activeCandidateWebhook = candidateWebhook.trim() || envConfigs.candidateWebhook;
-  const activeSharedSecret = sharedSecret.trim() || envConfigs.sharedSecret || 'super-secret-key';
+  const activeSharedSecret = sharedSecret.trim() || envConfigs.sharedSecret || '';
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto px-4 py-8">
@@ -167,7 +167,7 @@ export default function SettingsPage() {
               </label>
               <input
                 type="text"
-                placeholder={envConfigs.sharedSecret || "super-secret-key"}
+                placeholder={envConfigs.sharedSecret || "Enter shared webhook secret"}
                 value={sharedSecret}
                 onChange={(e) => setSharedSecret(e.target.value)}
                 className="w-full text-xs p-3 border border-neutral-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600/20 focus:border-indigo-600 transition-all font-mono"
@@ -224,7 +224,7 @@ export default function SettingsPage() {
               ) : (
                 <div className="flex items-center gap-2 text-neutral-400">
                   <span className="h-2 w-2 rounded-full bg-neutral-300" />
-                  <span className="text-xs italic font-medium">Inactive (Local Mock Active)</span>
+                  <span className="text-xs italic font-medium">Inactive (Not Configured)</span>
                 </div>
               )}
             </div>

@@ -129,9 +129,11 @@ export async function POST(request: Request) {
 
     // 8. Call AI evaluator webhook (n8n or mock grading engine)
     try {
-      console.log(`[API assessment/submit] Evaluating responses for candidate ${candidate.name}...`);
+      // Use job_code from linked job_descriptions; fall back to positionId string if no job linked
+      const jobRef = candidate.positionId?.toString() ?? 'unknown';
+      console.log(`[API assessment/submit] Evaluating responses for candidate ${candidate.id} (job ref: ${jobRef})...`);
       const evaluation = await evaluateAssessment({
-        jobId: candidate.positionId.toString(),
+        jobId: candidate.positionId?.toString() ?? '',
         candidateId: candidate.id,
         questions: assessment.questions as any[],
         answers: answers as Record<string, string>,

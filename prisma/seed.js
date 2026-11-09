@@ -4,7 +4,10 @@ const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
@@ -18,25 +21,43 @@ async function main() {
     await prisma.slot.deleteMany({});
     await prisma.questionBank.deleteMany({});
     await prisma.candidate.deleteMany({});
-    await prisma.job.deleteMany({});
+    await prisma.job.deleteMany({ where: { id: { in: [1100112n, 1100115n, 1100118n, 1100128n, 1100135n] } } });
     await prisma.user.deleteMany({});
+    await pool.query(`DELETE FROM job_descriptions WHERE job_code IN ('J001', 'J002');`);
     console.log('Cleared existing database records successfully.');
   } catch (err) {
     console.log('Error clearing tables (might be empty):', err.message);
   }
 
-  // 2. Seed Recruiter Admin User (admin@gmail.com)
-  const passwordHash = await bcrypt.hash('admin123', 10);
+  // 2. Seed Admin User and Recruiter User from environment configuration
+  const adminEmail = (process.env.DEFAULT_ADMIN_EMAIL || 'admin@gmail.com').trim().toLowerCase();
+  const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'admin123';
+  const recruiterEmail = (process.env.DEFAULT_RECRUITER_EMAIL || 'recruiter@gmail.com').trim().toLowerCase();
+  const recruiterPassword = process.env.DEFAULT_RECRUITER_PASSWORD || 'recruiter123';
+
+  const adminPasswordHash = await bcrypt.hash(adminPassword, 10);
   const adminUser = await prisma.user.create({
     data: {
       id: 'seeded-admin-user-id',
-      name: 'System Admin',
-      email: 'admin@gmail.com',
-      passwordHash,
+      name: 'Super Admin',
+      email: adminEmail,
+      passwordHash: adminPasswordHash,
       role: 'ADMIN',
     },
   });
   console.log('Seeded Admin Account:', adminUser.email);
+
+  const recruiterPasswordHash = await bcrypt.hash(recruiterPassword, 10);
+  const recruiterUser = await prisma.user.create({
+    data: {
+      id: 'seeded-recruiter-user-id',
+      name: 'Lead Recruiter',
+      email: recruiterEmail,
+      passwordHash: recruiterPasswordHash,
+      role: 'RECRUITER',
+    },
+  });
+  console.log('Seeded Recruiter Account:', recruiterUser.email);
 
   // 3. Create job positions matching CSV Job IDs (1100112, 1100115, 1100118, 1100128, 1100135)
   const job1 = await prisma.job.create({
@@ -149,7 +170,7 @@ async function main() {
         AWS: 20,
         'CI/CD': 15,
       },
-      createdBy: adminUser.id,
+      createdBy: recruiterUser.id,
     },
   });
 
@@ -174,7 +195,7 @@ async function main() {
         'API Integration': 30,
         'Security Protocols': 20,
       },
-      createdBy: adminUser.id,
+      createdBy: recruiterUser.id,
     },
   });
 
@@ -327,44 +348,44 @@ async function main() {
   console.log('Seeded Booking Slots (Available, Full, Expired).');
 
   // 6. Seed Candidate records
-  // Candidate 1: Graded and Evaluated
+  // Candidate 1: Graded and Evaluated (Job 1 - Admin)
   const c1 = await prisma.candidate.create({
     data: {
       positionId: job1.id,
-      candidateId: 1678433n,
-      fname: 'John',
+      candidateId: '1678433',
+      fname: 'Alice',
       lname: 'Smith',
-      email: 'john.smith@email.com',
+      email: 'alice.smith@email.com',
       phone: '+1 (555) 019-2834',
       assessmentStatus: 'EVALUATED',
-      assessmentToken: 'john-demo-token-999',
+      assessmentToken: 'alice-demo-token-999',
     },
   });
 
-  // Candidate 2: Finished but grading pending
+  // Candidate 2: Finished but grading pending (Job 2 - Admin)
   const c2 = await prisma.candidate.create({
     data: {
       positionId: job2.id,
-      candidateId: 1678438n,
-      fname: 'John',
-      lname: 'Smith',
-      email: 'john.smith@email.com',
+      candidateId: '1678438',
+      fname: 'Bob',
+      lname: 'Williams',
+      email: 'bob.williams@email.com',
       phone: '+1 (555) 888-2940',
       assessmentStatus: 'COMPLETED',
-      assessmentToken: 'john-demo-token-888',
+      assessmentToken: 'bob-demo-token-888',
     },
   });
 
-  // Candidate 3: Booked slot, scheduled (starts in 3 hours)
+  // Candidate 3: Booked slot, scheduled (Job 1 - Admin)
   const c3 = await prisma.candidate.create({
     data: {
       positionId: job1.id,
-      candidateId: 1678440n,
-      fname: 'John',
-      lname: 'Smith',
-      email: 'john.smith@email.com',
+      candidateId: '1678440',
+      fname: 'Charlie',
+      lname: 'Brown',
+      email: 'charlie.brown@email.com',
       assessmentStatus: 'SCHEDULED',
-      assessmentToken: 'john-demo-token-777',
+      assessmentToken: 'charlie-demo-token-777',
     },
   });
 
@@ -375,11 +396,11 @@ async function main() {
     }
   });
 
-  // Candidate 4: Shortlisted, can book slot
+  // Candidate 4: Shortlisted (Job 1 - Admin)
   const c4 = await prisma.candidate.create({
     data: {
       positionId: job1.id,
-      candidateId: 1005n,
+      candidateId: '1005',
       fname: 'Sophia',
       lname: 'Johnson',
       email: 'sophia.johnson@email.com',
@@ -388,16 +409,42 @@ async function main() {
     },
   });
 
-  // Candidate 5: Just Invited
+  // Candidate 5: Just Invited (Job 1 - Admin)
   const c5 = await prisma.candidate.create({
     data: {
       positionId: job1.id,
-      candidateId: 1006n,
+      candidateId: '1006',
       fname: 'Michael',
       lname: 'Lee',
       email: 'michael.lee@email.com',
       assessmentStatus: 'INVITED',
       assessmentToken: 'michael-demo-token-555',
+    },
+  });
+
+  // Candidate 6: Recruiter's Job (Job 4 - Recruiter)
+  const c6 = await prisma.candidate.create({
+    data: {
+      positionId: job4.id,
+      candidateId: '2001',
+      fname: 'David',
+      lname: 'DevOps',
+      email: 'david.devops@email.com',
+      assessmentStatus: 'EVALUATED',
+      assessmentToken: 'david-recruiter-token-111',
+    },
+  });
+
+  // Candidate 7: Recruiter's Job (Job 5 - Recruiter)
+  const c7 = await prisma.candidate.create({
+    data: {
+      positionId: job5.id,
+      candidateId: '2002',
+      fname: 'Emma',
+      lname: 'Architect',
+      email: 'emma.architect@email.com',
+      assessmentStatus: 'SHORTLISTED',
+      assessmentToken: 'emma-recruiter-token-222',
     },
   });
 
@@ -479,6 +526,18 @@ async function main() {
   });
 
   console.log('Seeded Completed Assessments successfully.');
+
+  // 6. Seed mock JD descriptions in job_descriptions table for test & duplicate detection
+  const crypto = require('crypto');
+  const jdText1 = 'Job Code: J001\nFull Stack Engineer responsible for database systems and React web apps.';
+  const hash1 = crypto.createHash('sha256').update(jdText1).digest('hex');
+  await pool.query(`
+    INSERT INTO job_descriptions (content_hash, job_code, job_title, jd_text, status)
+    VALUES ($1, $2, $3, $4, 'Active')
+    ON CONFLICT (content_hash) DO NOTHING;
+  `, [hash1, 'J001', 'Full Stack Engineer', jdText1]);
+  console.log('Seeded Mock Job Descriptions for Duplicate Detection Test.');
+
   console.log('Seeding finished successfully.');
   pool.end();
 }

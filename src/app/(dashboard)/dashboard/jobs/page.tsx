@@ -6,6 +6,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import { DataTable, ColumnDef } from '@/components/ui/data-table';
+import { MetricCard } from '@/components/ui/metric-card';
+import { PageHeader } from '@/components/ui/page-header';
 import { 
   Briefcase, 
   Eye, 
@@ -31,22 +33,17 @@ import {
 import { JobItem, JobDescriptionItem, MatchedCandidate } from '@/types';
 import { CandidateScorecardModal } from '@/components/dashboard/candidate-scorecard-modal';
 
-// Module-level cache — survives client-side navigations within the session
-let _cachedJobDescriptions: JobDescriptionItem[] | null = null;
-let _cachedJobs: JobItem[] | null = null;
-let _cachedTotalMatchedCandidates = 0;
-
 export default function JobsPage() {
   const [activeTab, setActiveTab] = React.useState<'descriptions' | 'assessmentJobs'>('descriptions');
   
   // Job Descriptions (Supabase job_descriptions table)
-  const [jobDescriptions, setJobDescriptions] = React.useState<JobDescriptionItem[]>(_cachedJobDescriptions ?? []);
-  const [totalMatchedCandidates, setTotalMatchedCandidates] = React.useState<number>(_cachedTotalMatchedCandidates);
-  const [isLoadingDescriptions, setIsLoadingDescriptions] = React.useState(_cachedJobDescriptions === null);
+  const [jobDescriptions, setJobDescriptions] = React.useState<JobDescriptionItem[]>([]);
+  const [totalMatchedCandidates, setTotalMatchedCandidates] = React.useState<number>(0);
+  const [isLoadingDescriptions, setIsLoadingDescriptions] = React.useState(true);
   
   // Assessment Jobs (jobs table)
-  const [jobs, setJobs] = React.useState<JobItem[]>(_cachedJobs ?? []);
-  const [isLoadingJobs, setIsLoadingJobs] = React.useState(_cachedJobs === null);
+  const [jobs, setJobs] = React.useState<JobItem[]>([]);
+  const [isLoadingJobs, setIsLoadingJobs] = React.useState(true);
 
   // Status Filter for JDs
   const [jdStatusFilter, setJdStatusFilter] = React.useState('All');
@@ -67,11 +64,9 @@ export default function JobsPage() {
       }
       const data = await res.json();
       if (data.jobDescriptions) {
-        _cachedJobDescriptions = data.jobDescriptions;
         setJobDescriptions(data.jobDescriptions);
       }
       if (typeof data.totalMatchedCandidates === 'number') {
-        _cachedTotalMatchedCandidates = data.totalMatchedCandidates;
         setTotalMatchedCandidates(data.totalMatchedCandidates);
       }
     } catch (error) {
@@ -91,7 +86,6 @@ export default function JobsPage() {
       }
       const data = await res.json();
       if (data.jobs) {
-        _cachedJobs = data.jobs;
         setJobs(data.jobs);
       }
     } catch (error) {
@@ -433,89 +427,80 @@ export default function JobsPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-neutral-900">Job Openings</h2>
-          <p className="text-xs text-neutral-500 mt-1">
-            Manage job openings, candidate matches, and assessment models.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="Job Openings"
+        description="Manage job openings, candidate matches, and assessment models."
+      >
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            fetchJobDescriptions();
+            fetchJobs();
+          }}
+          className="cursor-pointer gap-1.5 border-neutral-200"
+          title="Refresh database records"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          <span>Sync</span>
+        </Button>
+        <Link href="/dashboard/jobs/upload">
           <Button
-            variant="outline"
             size="sm"
-            onClick={() => {
-              fetchJobDescriptions();
-              fetchJobs();
-            }}
+            variant="outline"
             className="cursor-pointer gap-1.5 border-neutral-200"
-            title="Refresh database records"
           >
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span>Sync</span>
+            <Upload className="h-4 w-4" />
+            <span>Upload Job Description</span>
           </Button>
-          <Link href="/dashboard/jobs/upload">
-            <Button
-              size="sm"
-              variant="outline"
-              className="cursor-pointer gap-1.5 border-neutral-200"
-            >
-              <Upload className="h-4 w-4" />
-              <span>Upload Job Description</span>
-            </Button>
-          </Link>
-          <Link href="/dashboard/jobs/new">
-            <Button size="sm" className="cursor-pointer gap-1">
-              <Plus className="h-4.5 w-4.5" />
-              <span>Post New Job</span>
-            </Button>
-          </Link>
-        </div>
-      </div>
+        </Link>
+        <Link href="/dashboard/jobs/new">
+          <Button size="sm" className="cursor-pointer gap-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">
+            <Plus className="h-4 w-4" />
+            <span>Post New Job</span>
+          </Button>
+        </Link>
+      </PageHeader>
 
       {/* Summary KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Job Descriptions</span>
-            <FileText className="h-4 w-4 text-indigo-600" />
-          </div>
-          <p className="mt-2 text-2xl font-black text-neutral-900">{jobDescriptions.length}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Matched Candidates</span>
-            <Users className="h-4 w-4 text-emerald-600" />
-          </div>
-          <p className="mt-2 text-2xl font-black text-emerald-700">
-            {totalMatchedCandidates > 0 ? totalMatchedCandidates : totalCandidatesAcrossJDs}
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Assessment Models</span>
-            <Briefcase className="h-4 w-4 text-blue-600" />
-          </div>
-          <p className="mt-2 text-2xl font-black text-neutral-900">{jobs.length}</p>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Latest JD Posted</span>
-            <Calendar className="h-4 w-4 text-neutral-400" />
-          </div>
-          <p className="mt-2 text-sm font-bold text-neutral-800">
-            {jobDescriptions[0]
+        <MetricCard
+          label="Job Descriptions"
+          value={jobDescriptions.length}
+          icon={FileText}
+          iconColor="text-indigo-600"
+          iconBg="bg-indigo-50/80 border-indigo-100"
+        />
+        <MetricCard
+          label="Matched Candidates"
+          value={totalMatchedCandidates > 0 ? totalMatchedCandidates : totalCandidatesAcrossJDs}
+          icon={Users}
+          iconColor="text-emerald-600"
+          iconBg="bg-emerald-50/80 border-emerald-100"
+        />
+        <MetricCard
+          label="Assessment Models"
+          value={jobs.length}
+          icon={Briefcase}
+          iconColor="text-blue-600"
+          iconBg="bg-blue-50/80 border-blue-100"
+        />
+        <MetricCard
+          label="Latest JD Posted"
+          value={
+            jobDescriptions[0]
               ? new Date(jobDescriptions[0].createdAt).toLocaleDateString(undefined, {
                   month: 'short',
                   day: 'numeric',
                   year: 'numeric',
                 })
-              : 'N/A'}
-          </p>
-          <span className="text-[11px] text-neutral-400 truncate block">
-            {jobDescriptions[0]?.jobCode ? `Code: ${jobDescriptions[0].jobCode}` : 'None'}
-          </span>
-        </div>
+              : 'N/A'
+          }
+          subtext={jobDescriptions[0]?.jobCode ? `Code: ${jobDescriptions[0].jobCode}` : undefined}
+          icon={Calendar}
+          iconColor="text-neutral-500"
+          iconBg="bg-neutral-50 border-neutral-200"
+        />
       </div>
 
       {/* Tabs Switcher */}

@@ -84,7 +84,7 @@ export default function UploadJobDescriptionPage() {
     process.env.NEXT_PUBLIC_N8N_JD_WEBHOOK_URL || 'https://pooja456.app.n8n.cloud/webhook-test/jd-upload'
   );
   const [webhookUrl, setWebhookUrl] = useState<string>(
-    process.env.NEXT_PUBLIC_N8N_JD_WEBHOOK_URL || 'https://pooja456.app.n8n.cloud/webhook-test/jd-upload'
+    process.env.NEXT_PUBLIC_N8N_JD_WEBHOOK_URL || ''
   );
 
   const {
@@ -254,9 +254,8 @@ export default function UploadJobDescriptionPage() {
         file_type: string;
         text?: string;
       }> = [];
-
-      let totalSkippedPosIdCount = 0;
-      let totalSkippedJdCount = 0;
+      const totalSkippedPosIdCount = 0;
+      const totalSkippedJdCount = 0;
 
       for (const file of selectedFiles) {
         const ext = file.name.split('.').pop()?.toLowerCase() || '';

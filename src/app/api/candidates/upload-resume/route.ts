@@ -27,8 +27,7 @@ export async function POST(request: Request) {
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData();
-      customWebhookUrl = (formData.get('webhook_url') as string) || (formData.get('webhookUrl') as string) || null;
-      
+
       // Collect all files from 'files' or 'file' keys in FormData
       const uploadedFiles: File[] = [];
       const filesFromList = formData.getAll('files');
@@ -180,9 +179,10 @@ export async function POST(request: Request) {
       (customWebhookUrl && customWebhookUrl.trim()) ||
       (customHeaderUrl && customHeaderUrl.trim()) ||
       process.env.N8N_CANDIDATE_RESUME_WEBHOOK_URL ||
-      'https://pooja456.app.n8n.cloud/webhook-test/resume-insert';
+      process.env.NEXT_PUBLIC_N8N_CANDIDATE_RESUME_WEBHOOK_URL ||
+      '';
 
-    const secret = process.env.N8N_SHARED_SECRET || 'super-secret-key';
+    const secret = process.env.N8N_SHARED_SECRET || '';
 
     // Generate unique batch ID
     const batchId = `batch_cand_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;

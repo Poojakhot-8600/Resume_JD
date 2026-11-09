@@ -3,11 +3,13 @@ import { prisma, pool } from '@/database/db';
 
 export async function POST(request: Request) {
   try {
-    // Shared secret authorization check
-    const cronSecret = process.env.CRON_SECRET || 'super-cron-secret-key';
+    // Shared secret authorization check (timing-safe)
+    const cronSecret = process.env.CRON_SECRET || '';
     const authHeader = request.headers.get('authorization');
+    const token = authHeader?.replace('Bearer ', '').trim();
 
-    if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
+    const { verifyTimingSafeSecret } = await import('@/services/authz');
+    if (!verifyTimingSafeSecret(token, cronSecret)) {
       return NextResponse.json({ error: 'Unauthorized cron trigger.' }, { status: 401 });
     }
 
@@ -30,10 +32,10 @@ export async function POST(request: Request) {
         const hashes = staleJds.map(jd => jd.content_hash);
         const jobCodes = staleJds.map(jd => jd.job_code).filter(Boolean);
 
-        // Delete related output records to avoid foreign-key constraints
+        // Delete related output1 records to avoid foreign-key constraints
         if (jobCodes.length > 0) {
           await pool.query(
-            `DELETE FROM output WHERE job_code = ANY($1::text[])`,
+            `DELETE FROM output1 WHERE job_code = ANY($1::text[])`,
             [jobCodes]
           );
         }
@@ -69,10 +71,10 @@ export async function POST(request: Request) {
         const pks = staleCandidates.map(c => c.id);
         const externalIds = staleCandidates.map(c => c.candidateId).filter(Boolean);
 
-        // Delete from output table first to avoid foreign-key constraint issues
+        // Delete from output1 table first to avoid foreign-key constraint issues
         if (externalIds.length > 0) {
           await pool.query(
-            `DELETE FROM output WHERE candidate_id = ANY($1::text[])`,
+            `DELETE FROM output1 WHERE candidate_id = ANY($1::text[])`,
             [externalIds]
           );
         }

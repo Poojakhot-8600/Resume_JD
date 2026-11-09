@@ -1,130 +1,115 @@
 import { NextResponse } from 'next/server';
-import { cookies, headers } from 'next/headers';
-import {
-  verifyJWT,
-  signJWT,
-  getAuthCookieOptions,
-  COOKIE_NAME,
-  SESSION_IDLE_TIMEOUT_MINUTES,
-  SESSION_MAX_HOURS,
-} from '@/utils/auth';
 import { prisma } from '@/database/db';
+import { verifyJWT, signAccessToken, isRequestSecure } from '@/utils/auth';
+import { cookies } from 'next/headers';
 
 export async function POST(request: Request) {
   try {
-    let token: string | undefined;
+    let refreshToken: string | undefined;
 
-    // 1. Try request Authorization header
+    // 1. Check direct Authorization / x-refresh-token headers
     const authHeader = request.headers.get('authorization');
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7).trim();
+      refreshToken = authHeader.substring(7).trim();
+    }
+    if (!refreshToken) {
+      refreshToken = request.headers.get('x-refresh-token') || undefined;
     }
 
-    // 2. Try request cookie
-    if (!token) {
+    // 2. Check cookies
+    if (!refreshToken) {
       const cookieHeader = request.headers.get('cookie') || '';
-      const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
-      if (match) token = decodeURIComponent(match[1]);
+      const match = cookieHeader.match(/(?:^|;\s*)refresh_token=([^;]+)/);
+      if (match) refreshToken = decodeURIComponent(match[1]);
     }
-
-    // 3. Try Next.js cookieStore
-    if (!token) {
+    if (!refreshToken) {
       try {
         const cookieStore = await cookies();
-        token = cookieStore.get(COOKIE_NAME)?.value;
-      } catch {}
+        refreshToken = cookieStore.get('refresh_token')?.value;
+      } catch { }
     }
 
-    if (!token) {
+    if (!refreshToken) {
       return NextResponse.json(
-        { error: 'No active session token provided to refresh.' },
+        { error: 'Refresh token is missing.' },
         { status: 401 }
       );
     }
 
-    // Verify current token
-    const payload = await verifyJWT(token);
+    // 3. Cryptographically verify refresh token
+    const payload = await verifyJWT(refreshToken);
     if (!payload || !payload.id) {
       return NextResponse.json(
-        { error: 'Session has expired or is invalid. Please sign in again.' },
+        { error: 'Invalid or expired refresh token. Please sign in again.' },
         { status: 401 }
       );
     }
 
-    const nowSec = Math.floor(Date.now() / 1000);
-    const authTime = payload.auth_time || nowSec;
+    // 4. Verify user exists and retrieve current database record
+    const user = await prisma.user.findUnique({
+      where: { id: payload.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+      },
+    });
 
-    // Enforce absolute session lifespan cap (SESSION_MAX_HOURS)
-    if (nowSec - authTime >= SESSION_MAX_HOURS * 3600) {
+    if (!user) {
       return NextResponse.json(
-        {
-          error: `Maximum session lifespan of ${SESSION_MAX_HOURS} hours exceeded. Please sign in again.`,
-        },
+        { error: 'User account not found or has been deactivated.' },
         { status: 401 }
       );
     }
 
-    // Fetch user details or use payload
-    let userName = payload.name;
-    let userRole = payload.role;
-    try {
-      const user = await prisma.user.findUnique({
-        where: { id: payload.id },
-        select: { name: true, role: true },
-      });
-      if (user) {
-        userName = user.name;
-        userRole = user.role;
-      }
-    } catch {}
+    // 5. Issue new short-lived Access Token (1 hour)
+    const newAccessToken = await signAccessToken({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    });
 
-    // Sign new token with refreshed sliding expiration keeping original auth_time
-    const newToken = await signJWT(
-      {
-        id: payload.id,
-        name: userName,
-        email: payload.email,
-        role: userRole,
-        auth_time: authTime,
-      },
-      SESSION_IDLE_TIMEOUT_MINUTES,
-      authTime
-    );
-
-    // Set updated cookie
-    const cookieOpts = getAuthCookieOptions(request);
+    const secure = isRequestSecure(request);
     const cookieStore = await cookies();
-    cookieStore.set(cookieOpts.name, newToken, cookieOpts);
 
-    const response = NextResponse.json(
-      {
-        success: true,
-        token: newToken,
-        auth_time: authTime,
-        expiresInSeconds: SESSION_IDLE_TIMEOUT_MINUTES * 60,
-        user: {
-          id: payload.id,
-          name: userName,
-          email: payload.email,
-          role: userRole,
-        },
+    cookieStore.set({
+      name: 'auth_token',
+      value: newAccessToken,
+      httpOnly: true,
+      secure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60, // 1 hour
+    });
+
+    const response = NextResponse.json({
+      success: true,
+      token: newAccessToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
       },
-      {
-        headers: {
-          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-          Pragma: 'no-cache',
-          Expires: '0',
-        },
-      }
-    );
+    });
 
-    response.cookies.set(cookieOpts.name, newToken, cookieOpts);
+    response.cookies.set({
+      name: 'auth_token',
+      value: newAccessToken,
+      httpOnly: true,
+      secure,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60,
+    });
 
     return response;
   } catch (error: any) {
-    console.error('Session refresh API error:', error);
+    console.error('Refresh token error:', error);
     return NextResponse.json(
-      { error: 'Failed to refresh session.' },
+      { error: 'Failed to refresh authentication session.' },
       { status: 500 }
     );
   }

@@ -84,17 +84,13 @@ export async function POST(request: Request) {
     const authTime = Math.floor(Date.now() / 1000);
 
     // Sign session token with sliding idle timeout and original auth_time
-    const token = await signJWT(
-      {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        auth_time: authTime,
-      },
-      undefined,
-      authTime
-    );
+    const token = await signJWT({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      auth_time: authTime,
+    });
 
     // Standardized cookie options respecting COOKIE_SECURE / COOKIE_NAME / SameSite
     const cookieOpts = getAuthCookieOptions(request);
