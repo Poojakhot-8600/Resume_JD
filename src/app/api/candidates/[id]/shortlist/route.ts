@@ -42,8 +42,8 @@ export async function POST(
 
     // Send congratulations & booking slot email
     await sendShortlistInviteEmail({
-      candidateEmail: candidate.email,
-      candidateName: `${candidate.fname} ${candidate.lname}`.trim(),
+      candidateEmail: candidate.email ?? '',
+      candidateName: `${candidate.fname ?? ''} ${candidate.lname ?? ''}`.trim(),
       jobTitle: candidate.job?.title || candidate.currentJobTitle || '',
       token: assessmentToken,
     });

@@ -23,13 +23,7 @@ export async function GET(request: Request) {
       where: scope,
       include: {
         job: {
-          select: {
-            title: true,
-            createdBy: true,
-            creator: {
-              select: { id: true, name: true, email: true },
-            },
-          },
+          select: { jdRawText: true, title: true, createdBy: true },
         },
         assessments: {
           select: {
@@ -46,7 +40,14 @@ export async function GET(request: Request) {
       },
     });
 
-    const serializedCandidates = serializeBigInt(candidates);
+    const formattedCandidates = candidates.map((c: any) => ({
+      ...c,
+      name: `${c.fname || ''} ${c.lname || ''}`.trim() || c.fname || 'Unnamed Candidate',
+      // Expose job_code as jobId for frontend compatibility
+      jobId: c.job?.jobCode || (c.positionId ? String(c.positionId) : ''),
+    }));
+
+    const serializedCandidates = serializeBigInt(formattedCandidates);
     return NextResponse.json({ success: true, candidates: serializedCandidates });
   } catch (error: any) {
     console.error('Error fetching candidates:', error);

@@ -23,6 +23,7 @@ export async function POST(request: Request) {
 
     const contentType = request.headers.get('content-type') || '';
     const processedResumes: ResumePayloadItem[] = [];
+    let customWebhookUrl: string | null = null;
 
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData();
@@ -113,6 +114,7 @@ export async function POST(request: Request) {
       }
     } else if (contentType.includes('application/json')) {
       const body = await request.json();
+      customWebhookUrl = body.webhook_url || body.webhookUrl || null;
 
       if (Array.isArray(body.resumes) && body.resumes.length > 0) {
         for (const item of body.resumes) {
@@ -172,7 +174,10 @@ export async function POST(request: Request) {
     };
 
     // Determine target webhook URL for Candidate Resume
+    const customHeaderUrl = request.headers.get('x-webhook-url');
     const webhookUrl =
+      (customWebhookUrl && customWebhookUrl.trim()) ||
+      (customHeaderUrl && customHeaderUrl.trim()) ||
       process.env.N8N_CANDIDATE_RESUME_WEBHOOK_URL ||
       process.env.NEXT_PUBLIC_N8N_CANDIDATE_RESUME_WEBHOOK_URL ||
       '';

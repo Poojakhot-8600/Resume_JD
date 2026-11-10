@@ -54,7 +54,6 @@ export function getCandidateScope(
     ],
   };
 }
-
 /**
  * Asserts that the authenticated user has authorization to access/modify a specific Job.
  * Enforces strict tenant and user-level isolation (prevents IDOR vulnerabilities).
@@ -98,6 +97,7 @@ export async function assertCandidateOwnership(
       job: {
         select: {
           id: true,
+          jdRawText: true,
           title: true,
           createdBy: true,
         },

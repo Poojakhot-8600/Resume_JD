@@ -44,13 +44,15 @@ model User {
 }
 
 model Job {
-  id           BigInt         @id @map("position_id")
+  id           BigInt         @id
+  contentHash  String?        @map("content_hash") @db.VarChar(255)
+  jobCode      String?        @map("job_code") @db.VarChar(255)
   title        String?        @map("job_title") @db.VarChar(255)
-  jdRawText    String?        @map("jd") @db.VarChar(2000)
-  status       String?        @db.VarChar(20)
+  jdRawText    String?        @map("jd_text") @db.Text
+  status       String?        @default("ACTIVE") @db.VarChar(20)
   skills       Json?
-  mustHave     Json?          @map("must_have")
-  goodToHave   Json?          @map("good_to_have")
+  mustHave     Json?          @map("must_have_skills")
+  goodToHave   Json?          @map("good_to_have_skills")
   experience   String?
   seniority    String?
   topics       Json?
@@ -58,19 +60,20 @@ model Job {
   mcqs         Json?
   mcqCount     Int?           @default(0) @map("mcq_count")
   errorMessage String?        @map("error_message") @db.VarChar(255)
+  embedding    Json?
 
   // Keep our application-specific fields to prevent backend app from breaking:
   department   String         @default("General")
   location     String         @default("Remote")
-  createdBy    String
-  creator      User           @relation("UserJobs", fields: [createdBy], references: [id], onDelete: Cascade)
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  createdBy    String?        @default("seeded-admin-user-id")
+  creator      User?          @relation("UserJobs", fields: [createdBy], references: [id], onDelete: Cascade)
+  createdAt    DateTime?      @default(now()) @map("created_at")
+  updatedAt    DateTime?      @updatedAt @map("updated_at")
 
-  candidates   Candidate[]
   questions    QuestionBank[]
+  candidates   Candidate[]
 
-  @@map("jobs")
+  @@map("job_descriptions")
 }
 
 model QuestionBank {
@@ -86,40 +89,64 @@ model QuestionBank {
 }
 
 model Candidate {
-  id                String           @id @default(uuid())
-  positionId        BigInt           @map("position_id")
-  candidateId       String?          @map("candidate_id")
-  fname             String           @map("candidate_fname") @db.VarChar(100)
-  lname             String           @map("candidate_lname") @db.VarChar(100)
-  email             String           @map("candidate_email") @db.VarChar(255)
-  createdAt         DateTime         @default(now()) @map("created_at")
+  id                String            @id @default(uuid())
+  candidateId       String?           @map("candidate_id")
+  fname             String?           @map("candidate_fname") @db.VarChar(100)
+  lname             String?           @map("candidate_lname") @db.VarChar(100)
+  email             String?           @map("candidate_email") @db.VarChar(255)
+  createdAt         DateTime?         @default(now()) @map("created_at")
+  updatedAt         DateTime?         @updatedAt @map("updated_at")
 
-  // Keep our application-specific fields:
+  // Job linkage: BigInt FK → job_descriptions.id; use job.jobCode for string references
+  positionId        BigInt?           @map("position_id")
+  job               Job?              @relation(fields: [positionId], references: [id], onDelete: SetNull)
+
+  // Application-specific fields:
   phone             String?
-  assessmentStatus  AssessmentStatus? @default(INVITED)
-  assessmentToken   String?           @unique // Secure, unguessable token
-  inviteSentAt      DateTime?         @default(now())
-  createdBy         String?           @map("created_by")
+  assessmentStatus  AssessmentStatus? @default(INVITED) @map("assessment_status")
+  assessmentToken   String?           @unique @map("assessment_token")
+  inviteSentAt      DateTime?         @default(now()) @map("invite_sent_at")
+  resumeUrl         String?           @map("resume_url")
+  status            String?           @default("Active")
+  inactiveAt        DateTime?         @map("inactive_at")
 
-  // Supabase candidate fields:
-  yearsOfExperience Decimal?         @map("years_of_experience") @db.Decimal
-  currentJobTitle   String?          @map("current_job_title") @db.VarChar
-  currentCompany    String?          @map("current_company") @db.VarChar
+  // Rich candidate fields from candidate1 table:
+  yearsOfExperience Decimal?          @map("years_of_experience") @db.Decimal
+  currentJobTitle   String?           @map("current_job_title") @db.VarChar
+  currentCompany    String?           @map("current_company") @db.VarChar
+  seniority         String?
   skills            Json?
+  primarySkills     Json?             @map("primary_skills")
+  secondarySkills   Json?             @map("secondary_skills")
+  skillDetails      Json?             @map("skill_details")
+  employmentHistory Json?             @map("employment_history")
+  projects          Json?
+  education         Json?
+  degree            String?           @db.VarChar
+  fieldOfStudy      String?           @map("field_of_study") @db.VarChar
+  institution       String?           @db.VarChar
+  graduationYear    Int?              @map("graduation_year")
+  certifications    Json?
+  languages         Json?
+  candidateAddress  String?           @map("candidate_address")
+  candidateLocation String?           @map("candidate_location") @db.VarChar
+  linkedinUrl       String?           @map("linkedin_url")
+  githubUrl         String?           @map("github_url")
+  portfolioUrl      String?           @map("portfolio_url")
   summary           String?
-  resumeText        String?          @map("resume_text")
-  resumeUrl         String?          @map("resume_url")
+  topics            Json?
+  resumeText        String?           @map("resume_text")
+  source            String?
+  uploadBatchId     String?           @map("upload_batch_id") @db.VarChar
+  parseStatus       Boolean?          @map("parse_status")
+  parsedAt          DateTime?         @map("parsed_at")
+  embedding         Json?
 
   // Relations:
-  job               Job              @relation(fields: [positionId], references: [id], onDelete: Cascade)
   assessments       Assessment[]
   booking           SlotBooking?
 
-  // Custom Status
-  status            String?          @default("Active")
-  inactiveAt        DateTime?        @map("inactive_at")
-
-  @@map("candidates")
+  @@map("candidate1")
 }
 
 model Slot {
@@ -149,7 +176,7 @@ model Assessment {
   id                  String     @id @default(uuid())
   candidateId         String     @unique
   candidate           Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  jobId               BigInt     @map("job_id")
+  jobId               BigInt?    @map("job_id") // BigInt FK to job_descriptions.id
   questions           Json       // Array of generated questions (copied from QuestionBank on start)
   assignedQuestionIds String[]   @default([]) // Fixed set of chosen question IDs
   answers             Json?      // JSON mapping of question ID to candidate answers

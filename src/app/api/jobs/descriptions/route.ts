@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     const jdCondition = allForAdmin ? '' : 'WHERE jd.created_by = $1';
     const jdParams = allForAdmin ? [] : [user.id];
 
-    // Query job_descriptions joined with candidate counts from output table
+    // Query job_descriptions joined with candidate counts from output1 table
     const res = await pool.query(`
       SELECT 
         jd.content_hash as "contentHash",
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
       FROM job_descriptions jd
       LEFT JOIN (
         SELECT TRIM(job_code) as job_code, COUNT(DISTINCT candidate_id) as candidates_count
-        FROM output
+        FROM output1
         WHERE job_code IS NOT NULL
         GROUP BY TRIM(job_code)
       ) m ON TRIM(m.job_code) = TRIM(jd.job_code)
@@ -101,17 +101,16 @@ export async function GET(request: Request) {
         c.years_of_experience as "years_of_experience",
         c.seniority as "candidate_seniority",
         COALESCE(c.candidate_location, c.candidate_address) as "location"
-      FROM output o
-      LEFT JOIN candidates c ON TRIM(c.candidate_id) = TRIM(o.candidate_id)
-      ${outCondition}
+      FROM output1 o
+      LEFT JOIN candidate1 c ON TRIM(c.candidate_id) = TRIM(o.candidate_id)
       ORDER BY o.match_percent DESC NULLS LAST;
     `, outParams);
 
-    // Fetch total distinct matched candidates across user's jobs
-    const totalCountQuery = allForAdmin
-      ? 'SELECT COUNT(DISTINCT candidate_id) as count FROM output;'
-      : 'SELECT COUNT(DISTINCT candidate_id) as count FROM output WHERE created_by = $1 OR job_code IN (SELECT job_code FROM job_descriptions WHERE created_by = $1);';
-    const totalCandidatesRes = await pool.query(totalCountQuery, outParams).catch(() => ({ rows: [{ count: '0' }] }));
+    // Fetch total distinct matched candidates across all jobs in output1
+    const totalCandidatesRes = await pool.query(`
+      SELECT COUNT(DISTINCT candidate_id) as count
+      FROM output1;
+    `).catch(() => ({ rows: [{ count: '0' }] }));
     const totalMatchedCandidates = parseInt(totalCandidatesRes.rows[0]?.count || '0', 10);
 
     const candidatesByJob: Record<string, any[]> = {};

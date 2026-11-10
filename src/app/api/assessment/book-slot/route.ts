@@ -129,8 +129,8 @@ export async function POST(request: Request) {
 
     // 6. Send Confirmation Email
     await sendBookingConfirmationEmail({
-      candidateEmail: candidate.email,
-      candidateName: `${candidate.fname} ${candidate.lname}`.trim(),
+      candidateEmail: candidate.email ?? '',
+      candidateName: `${candidate.fname ?? ''} ${candidate.lname ?? ''}`.trim(),
       jobTitle: candidate.job?.title || candidate.currentJobTitle || '',
       startTime: slot.startTime,
       endTime: slot.endTime,

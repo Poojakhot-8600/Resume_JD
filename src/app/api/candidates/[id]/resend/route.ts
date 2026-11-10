@@ -35,8 +35,8 @@ export async function POST(
 
     // Dispatch email invitation again
     await sendAssessmentInviteEmail({
-      candidateEmail: candidate.email,
-      candidateName: `${candidate.fname} ${candidate.lname}`.trim(),
+      candidateEmail: candidate.email ?? '',
+      candidateName: `${candidate.fname ?? ''} ${candidate.lname ?? ''}`.trim(),
       jobTitle: candidate.job?.title || candidate.currentJobTitle || '',
       token: assessmentToken,
     });

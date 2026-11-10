@@ -322,16 +322,15 @@ export async function preCheckDuplicatesInSupabase(
       seenHashes.add(sha256);
       if (email) seenEmails.add(email);
 
-      // Check existing in Supabase candidates table
+      // Check existing in Supabase candidate1 table
       try {
         const queryRes = await pool.query(
           `SELECT id, candidate_id, candidate_fname, candidate_lname, candidate_email
-           FROM candidates
+           FROM candidate1
            WHERE ($1::text IS NOT NULL AND LOWER(TRIM(candidate_email)) = $1)
-              OR content_hash = $2
-              OR resume_text = $3
+              OR resume_text = $2
            LIMIT 1;`,
-          [email, sha256, textVal]
+          [email, textVal]
         );
 
         if (queryRes.rows.length > 0) {
@@ -435,46 +434,63 @@ export async function processCandidateBatchAsync(
     // Items that are expected to be newly inserted
     const newItems = resumesPayload.filter((r) => !knownDuplicates.has(r.file_name));
 
-    // 2. Dispatch to n8n webhook
+    // 2. Dispatch to n8n webhook — use URL exactly as configured, no fallbacks
     let n8nResponseBody: any = null;
     let n8nHttpStatus = 200;
     let n8nError: string | null = null;
+    const targetUrl = webhookUrl.trim();
+
+    const payload = {
+      batch_id: batchId,
+      batchId: batchId,
+      user_id: userId || 'system',
+      userId: userId || 'system',
+      created_by: userId || 'system',
+      createdBy: userId || 'system',
+      resumes: resumesPayload,
+      callback_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/webhooks/n8n/batch-complete`,
+    };
 
     try {
-      const n8nRes = await fetch(webhookUrl, {
+      // redirect: 'manual' prevents Node from silently following 301/302 redirects
+      // which would convert POST → GET and cause n8n to return 404
+      const n8nRes = await fetch(targetUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-webhook-secret': secret,
         },
-        body: JSON.stringify({
-          batch_id: batchId,
-          batchId: batchId,
-          user_id: userId || 'system',
-          userId: userId || 'system',
-          created_by: userId || 'system',
-          createdBy: userId || 'system',
-          resumes: resumesPayload,
-          callback_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/webhooks/n8n/batch-complete`,
-        }),
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(25000),
+        redirect: 'manual',
       });
 
-      n8nHttpStatus = n8nRes.status;
-      const rawText = await n8nRes.text();
-      try {
-        n8nResponseBody = JSON.parse(rawText);
-      } catch {
-        n8nResponseBody = rawText;
-      }
+      // Detect HTTP→HTTPS redirects (301/302/307/308) before POST body is lost
+      if (n8nRes.status >= 300 && n8nRes.status < 400) {
+        const location = n8nRes.headers.get('location') || '';
+        n8nError = `Redirect detected (HTTP ${n8nRes.status}) from ${targetUrl}${
+          location ? ` → ${location}` : ''
+        }. Use the https:// URL directly to avoid POST→GET conversion.`;
+      } else {
+        n8nHttpStatus = n8nRes.status;
+        const rawText = await n8nRes.text();
+        try {
+          n8nResponseBody = JSON.parse(rawText);
+        } catch {
+          n8nResponseBody = rawText;
+        }
 
-      if (!n8nRes.ok) {
-        n8nError =
-          (typeof n8nResponseBody === 'object' && (n8nResponseBody?.message || n8nResponseBody?.error)) ||
-          `n8n returned HTTP status ${n8nRes.status}`;
+        if (!n8nRes.ok) {
+          n8nError =
+            (typeof n8nResponseBody === 'object' && (n8nResponseBody?.message || n8nResponseBody?.error)) ||
+            `n8n returned HTTP ${n8nRes.status} from ${targetUrl}`;
+        }
       }
     } catch (fetchErr: any) {
-      console.error(`[Async Batch ${batchId}] Fetch error connecting to n8n:`, fetchErr);
-      n8nError = fetchErr.message || 'Network error connecting to n8n webhook';
+      console.error(`[Async Batch ${batchId}] Fetch error connecting to n8n (${targetUrl}):`, fetchErr);
+      const cause = fetchErr.cause ? (fetchErr.cause.message || fetchErr.cause.code || String(fetchErr.cause)) : '';
+      const detail = cause ? `${fetchErr.message} (${cause})` : (fetchErr.message || 'Network error');
+      n8nError = `${detail} — called: ${targetUrl}`;
     }
 
     // 3. If n8n failed or errored immediately
@@ -591,13 +607,12 @@ export async function processCandidateBatchAsync(
         try {
           const queryRes = await pool.query(
             `SELECT id, candidate_id, candidate_fname, candidate_lname, candidate_email, created_at
-             FROM candidates
+             FROM candidate1
              WHERE upload_batch_id = $1
                 OR ($2::text IS NOT NULL AND LOWER(TRIM(candidate_email)) = $2)
-                OR content_hash = $3
-                OR resume_text = $4
+                OR resume_text = $3
              LIMIT 1;`,
-            [batchId, email, sha256, textVal]
+            [batchId, email, textVal]
           );
 
           if (queryRes.rows.length > 0) {
@@ -731,46 +746,63 @@ export async function processJobBatchAsync(
 
     const newItems = jobDescriptionsPayload.filter((j) => !knownDuplicates.has(j.file_name));
 
-    // 2. Dispatch to n8n webhook
+    // 2. Dispatch to n8n webhook — use URL exactly as configured, no fallbacks
     let n8nResponseBody: any = null;
     let n8nHttpStatus = 200;
     let n8nError: string | null = null;
+    const targetUrl = webhookUrl.trim();
+
+    const payload = {
+      batch_id: batchId,
+      batchId: batchId,
+      user_id: userId || 'system',
+      userId: userId || 'system',
+      created_by: userId || 'system',
+      createdBy: userId || 'system',
+      job_descriptions: jobDescriptionsPayload,
+      callback_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/webhooks/n8n/batch-complete`,
+    };
 
     try {
-      const n8nRes = await fetch(webhookUrl, {
+      // redirect: 'manual' prevents Node from silently following 301/302 redirects
+      // which would convert POST → GET and cause n8n to return 404
+      const n8nRes = await fetch(targetUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-webhook-secret': secret,
         },
-        body: JSON.stringify({
-          batch_id: batchId,
-          batchId: batchId,
-          user_id: userId || 'system',
-          userId: userId || 'system',
-          created_by: userId || 'system',
-          createdBy: userId || 'system',
-          job_descriptions: jobDescriptionsPayload,
-          callback_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/webhooks/n8n/batch-complete`,
-        }),
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(25000),
+        redirect: 'manual',
       });
 
-      n8nHttpStatus = n8nRes.status;
-      const rawText = await n8nRes.text();
-      try {
-        n8nResponseBody = JSON.parse(rawText);
-      } catch {
-        n8nResponseBody = rawText;
-      }
+      // Detect HTTP→HTTPS redirects (301/302/307/308) before POST body is lost
+      if (n8nRes.status >= 300 && n8nRes.status < 400) {
+        const location = n8nRes.headers.get('location') || '';
+        n8nError = `Redirect detected (HTTP ${n8nRes.status}) from ${targetUrl}${
+          location ? ` → ${location}` : ''
+        }. Use the https:// URL directly to avoid POST→GET conversion.`;
+      } else {
+        n8nHttpStatus = n8nRes.status;
+        const rawText = await n8nRes.text();
+        try {
+          n8nResponseBody = JSON.parse(rawText);
+        } catch {
+          n8nResponseBody = rawText;
+        }
 
-      if (!n8nRes.ok) {
-        n8nError =
-          (typeof n8nResponseBody === 'object' && (n8nResponseBody?.message || n8nResponseBody?.error)) ||
-          `n8n returned HTTP status ${n8nRes.status}`;
+        if (!n8nRes.ok) {
+          n8nError =
+            (typeof n8nResponseBody === 'object' && (n8nResponseBody?.message || n8nResponseBody?.error)) ||
+            `n8n returned HTTP ${n8nRes.status} from ${targetUrl}`;
+        }
       }
     } catch (fetchErr: any) {
-      console.error(`[Async Batch ${batchId}] Fetch error connecting to n8n:`, fetchErr);
-      n8nError = fetchErr.message || 'Network error connecting to n8n webhook';
+      console.error(`[Async Batch ${batchId}] Fetch error connecting to n8n (${targetUrl}):`, fetchErr);
+      const cause = fetchErr.cause ? (fetchErr.cause.message || fetchErr.cause.code || String(fetchErr.cause)) : '';
+      const detail = cause ? `${fetchErr.message} (${cause})` : (fetchErr.message || 'Network error');
+      n8nError = `${detail} — called: ${targetUrl}`;
     }
 
     // 3. If n8n failed or errored immediately

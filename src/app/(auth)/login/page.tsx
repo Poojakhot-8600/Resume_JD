@@ -2,20 +2,22 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff, Info, CheckCircle2 } from 'lucide-react';
+import { LAST_ACTIVITY_KEY, AUTH_TIME_KEY } from '@/utils/session';
 
 const loginSchema = z.object({
   email: z
     .string()
+    .trim()
     .min(1, 'Please enter your email address.')
-    .email('Invalid email or password. Please try again.'),
+    .email('Please enter a valid email address.'),
   password: z
     .string()
     .min(1, 'Please enter your password.'),
@@ -35,11 +37,39 @@ async function readJsonResponse(res: Response) {
   return {};
 }
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const reason = searchParams.get('reason');
+
   const [errorAlert, setErrorAlert] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [showPassword, setShowPassword] = React.useState(false);
+
+  // Status message based on redirect reason
+  const getReasonMessage = () => {
+    if (reason === 'timeout') {
+      return {
+        type: 'warning',
+        text: 'You were logged out because of inactivity.',
+      };
+    }
+    if (reason === 'expired') {
+      return {
+        type: 'warning',
+        text: 'Your session has expired. Please sign in again.',
+      };
+    }
+    if (reason === 'logout') {
+      return {
+        type: 'info',
+        text: 'You have been signed out successfully.',
+      };
+    }
+    return null;
+  };
+
+  const statusMsg = getReasonMessage();
 
   const {
     register,
@@ -60,7 +90,9 @@ export default function LoginPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(values),
+        credentials: 'include',
       });
+      console.log("auth login ...", res);
 
       const data = await readJsonResponse(res);
 
@@ -76,18 +108,24 @@ export default function LoginPage() {
         return;
       }
 
-      // Extra guarantee: write cookie client-side and save to localStorage
+      // Store session data in localStorage & initialize activity tracker
       if (data?.token) {
+        const now = Date.now();
         try {
           localStorage.setItem('auth_token', data.token);
           if (data.user) {
             localStorage.setItem('auth_user', JSON.stringify(data.user));
           }
-        } catch {}
-        document.cookie = `auth_token=${data.token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
+          localStorage.setItem(LAST_ACTIVITY_KEY, now.toString());
+          localStorage.setItem(
+            AUTH_TIME_KEY,
+            data.auth_time ? (data.auth_time * 1000).toString() : now.toString()
+          );
+          sessionStorage.clear();
+        } catch { }
       }
 
-      // Hard redirect guarantees the browser passes the new session cookie and bypasses stale RSC client cache
+      // Hard redirect guarantees browser loads new session cookie and bypasses stale RSC client cache
       window.location.href = '/dashboard';
     } catch (err: unknown) {
       setErrorAlert(err instanceof Error ? err.message : 'Invalid email or password. Please try again.');
@@ -210,5 +248,13 @@ export default function LoginPage() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <React.Suspense fallback={<div className="p-8 text-center text-xs text-neutral-400">Loading...</div>}>
+      <LoginForm />
+    </React.Suspense>
   );
 }

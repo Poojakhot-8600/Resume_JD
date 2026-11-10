@@ -21,7 +21,7 @@ async function main() {
     await prisma.slot.deleteMany({});
     await prisma.questionBank.deleteMany({});
     await prisma.candidate.deleteMany({});
-    await prisma.job.deleteMany({});
+    await prisma.job.deleteMany({ where: { id: { in: [1100112n, 1100115n, 1100118n, 1100128n, 1100135n] } } });
     await prisma.user.deleteMany({});
     await pool.query(`DELETE FROM job_descriptions WHERE job_code IN ('J001', 'J002');`);
     console.log('Cleared existing database records successfully.');

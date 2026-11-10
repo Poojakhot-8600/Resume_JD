@@ -10,10 +10,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { LAST_ACTIVITY_KEY, AUTH_TIME_KEY } from '@/utils/session';
 
 const signupSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters'),
-  email: z.string().email('Invalid email address'),
+  name: z.string().trim().min(2, 'Name must be at least 2 characters'),
+  email: z.string().trim().email('Invalid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
@@ -54,6 +55,7 @@ export default function SignupPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(values),
+        credentials: 'include',
       });
 
       const data = await readJsonResponse(res);
@@ -64,15 +66,21 @@ export default function SignupPage() {
         return;
       }
 
-      // Extra guarantee: write cookie client-side and save to localStorage
+      // Store session data in localStorage & initialize activity tracker
       if (data?.token) {
+        const now = Date.now();
         try {
           localStorage.setItem('auth_token', data.token);
           if (data.user) {
             localStorage.setItem('auth_user', JSON.stringify(data.user));
           }
+          localStorage.setItem(LAST_ACTIVITY_KEY, now.toString());
+          localStorage.setItem(
+            AUTH_TIME_KEY,
+            data.auth_time ? (data.auth_time * 1000).toString() : now.toString()
+          );
+          sessionStorage.clear();
         } catch {}
-        document.cookie = `auth_token=${data.token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
       }
 
       // Hard redirect guarantees the browser passes the new session cookie and bypasses stale RSC client cache
