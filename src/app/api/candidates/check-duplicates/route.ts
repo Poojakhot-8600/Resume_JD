@@ -27,12 +27,8 @@ export async function POST(req: Request) {
         duplicates = await prisma.candidate.findMany({
           where: {
             AND: [
-              {
-                OR: [
-                  { createdBy: user.id },
-                  { job: { createdBy: user.id } },
-                ],
-              },
+              // candidate1 has no createdBy — scope via parent job ownership
+              user.role === 'ADMIN' ? {} : { job: { createdBy: user.id } },
               { OR: conditions },
             ],
           },
@@ -48,12 +44,8 @@ export async function POST(req: Request) {
       duplicates = await prisma.candidate.findMany({
         where: {
           AND: [
-            {
-              OR: [
-                { createdBy: user.id },
-                { job: { createdBy: user.id } },
-              ],
-            },
+            // candidate1 has no createdBy — scope via parent job ownership
+            user.role === 'ADMIN' ? {} : { job: { createdBy: user.id } },
             { email: { in: emails.filter(Boolean) } },
           ],
         },

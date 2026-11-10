@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
     // Strict multi-tenant user isolation:
     // User sees ONLY their own job descriptions unless ADMIN explicitly requested scope=all.
-    const jdCondition = allForAdmin ? '' : 'WHERE jd.created_by = $1';
+    const jdCondition = allForAdmin ? '' : `WHERE jd."createdBy" = $1`;
     const jdParams = allForAdmin ? [] : [user.id];
 
     // Query job_descriptions joined with candidate counts from output1 table
@@ -30,7 +30,7 @@ export async function GET(request: Request) {
         jd.created_at as "createdAt",
         COALESCE(jd.status, 'Active') as "status",
         jd.inactive_at as "inactiveAt",
-        COALESCE(jd.created_by, '') as "createdBy",
+        COALESCE(jd."createdBy", '') as "createdBy",
         COALESCE(m.candidates_count, 0)::int as "candidatesCount"
       FROM job_descriptions jd
       LEFT JOIN (
@@ -53,11 +53,11 @@ export async function GET(request: Request) {
       );
     }
 
-    // Fetch matched candidates summary joined with candidate profiles from candidates table
-    // Strictly isolate output to records created by or belonging to user's JDs
+    // Fetch matched candidates summary joined with candidate profiles from candidate1 table
+    // Strictly isolate output to records belonging to user's JDs
     const outCondition = allForAdmin
       ? ''
-      : 'WHERE (o.created_by = $1 OR o.job_code IN (SELECT job_code FROM job_descriptions WHERE created_by = $1))';
+      : `WHERE o.job_code IN (SELECT job_code FROM job_descriptions WHERE "createdBy" = $1)`;
     const outParams = allForAdmin ? [] : [user.id];
 
     const candidatesRes = await pool.query(`
@@ -93,7 +93,6 @@ export async function GET(request: Request) {
         o.recommended_next_step as "recommended_next_step",
         o.explanation,
         o.created_at as "createdAt",
-        COALESCE(o.created_by, '') as "createdBy",
         COALESCE(o.band, o.recommended_next_step, 'MATCHED') as "matchStatus",
         c.phone,
         c.current_job_title as "current_job_title",

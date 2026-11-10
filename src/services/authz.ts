@@ -37,7 +37,7 @@ export function getJobScope(
 
 /**
  * Returns Prisma filter for Candidates based on caller's role and requested scope.
- * - By default: strictly isolated to the authenticated user's candidates (createdBy === user.id OR job.createdBy === user.id).
+ * - By default: strictly isolated to the authenticated user's candidates (job.createdBy === user.id).
  * - allForAdmin (optional): if caller is ADMIN and explicitly requests team view, returns unrestricted scope.
  */
 export function getCandidateScope(
@@ -48,12 +48,10 @@ export function getCandidateScope(
     return {};
   }
   return {
-    OR: [
-      { createdBy: user.id },
-      { job: { createdBy: user.id } },
-    ],
+    job: { createdBy: user.id },
   };
 }
+
 /**
  * Asserts that the authenticated user has authorization to access/modify a specific Job.
  * Enforces strict tenant and user-level isolation (prevents IDOR vulnerabilities).
@@ -83,7 +81,7 @@ export async function assertJobOwnership(
 
 /**
  * Asserts that the authenticated user has authorization to access/modify a specific Candidate.
- * Enforces strict user isolation: caller must be candidate creator or parent job creator.
+ * Enforces strict user isolation: caller must own the parent job.
  * Prevents IDOR vulnerabilities.
  */
 export async function assertCandidateOwnership(
