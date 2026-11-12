@@ -157,6 +157,7 @@ function LoginForm() {
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
+                suppressHydrationWarning
                 onClick={() => {
                   setValue('email', process.env.NEXT_PUBLIC_DEMO_ADMIN_EMAIL || 'admin@gmail.com');
                   setValue('password', process.env.NEXT_PUBLIC_DEMO_ADMIN_PASSWORD || 'admin123');
@@ -172,6 +173,7 @@ function LoginForm() {
 
               <button
                 type="button"
+                suppressHydrationWarning
                 onClick={() => {
                   setValue('email', 'recruiter@gmail.com');
                   setValue('password', 'recruiter123');
@@ -195,7 +197,7 @@ function LoginForm() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" suppressHydrationWarning>
           <Input
             label="Email Address"
             type="email"
