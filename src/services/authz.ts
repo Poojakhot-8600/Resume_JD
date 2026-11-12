@@ -108,9 +108,9 @@ export async function assertCandidateOwnership(
   }
 
   const isOwner =
-    candidate.createdBy === user.id ||
     candidate.job?.createdBy === user.id ||
-    (Boolean(options?.allowAdminOverride) && user.role === 'ADMIN');
+    user.role === 'ADMIN' ||
+    Boolean(options?.allowAdminOverride);
 
   if (!isOwner) {
     throw new AuthorizationError('Forbidden: You do not have permission to access or modify this candidate.');
