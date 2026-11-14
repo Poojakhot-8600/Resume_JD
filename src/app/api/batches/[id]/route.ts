@@ -20,7 +20,7 @@ export async function GET(
 
     const { batch, unauthorized } = await getBatchById(
       id,
-      user.role === 'ADMIN' ? undefined : user.id
+      user.id
     );
 
     if (unauthorized) {

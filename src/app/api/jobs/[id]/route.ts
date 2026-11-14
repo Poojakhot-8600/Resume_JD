@@ -18,8 +18,8 @@ export async function GET(
     const { id } = await params;
     const positionId = BigInt(id);
 
-    // Enforce multi-tenant access control (IDOR protection)
-    await assertJobOwnership(positionId, user);
+    // Enforce multi-tenant access control (IDOR protection - admin can view)
+    await assertJobOwnership(positionId, user, { allowAdminOverride: true });
 
     const job = await prisma.job.findUnique({
       where: { id: positionId },
@@ -69,7 +69,7 @@ export async function DELETE(
     const { id } = await params;
     const positionId = BigInt(id);
 
-    // Enforce multi-tenant access control (IDOR protection)
+    // Enforce multi-tenant access control (only owner can delete)
     await assertJobOwnership(positionId, user);
 
     await prisma.job.delete({
@@ -103,7 +103,7 @@ export async function PATCH(
     const { id } = await params;
     const positionId = BigInt(id);
 
-    // Enforce multi-tenant access control (IDOR protection)
+    // Enforce multi-tenant access control (only owner can delete)
     await assertJobOwnership(positionId, user);
 
     const body = await request.json();

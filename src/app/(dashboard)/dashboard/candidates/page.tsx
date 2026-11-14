@@ -54,6 +54,10 @@ export default function CandidatesPage() {
   const [activeFilter, setActiveFilter] = React.useState('All');
   const [sendingEmailId, setSendingEmailId] = React.useState<string | null>(null);
 
+  // User role and administrative scope toggle ('mine' = strictly caller's candidates, 'all' = team-wide)
+  const [currentUser, setCurrentUser] = React.useState<any>(null);
+  const [adminScope, setAdminScope] = React.useState<'mine' | 'all'>('mine');
+
   // Selected candidate for viewing full summary / resume
   const [selectedResumeCandidate, setSelectedResumeCandidate] = React.useState<CandidateItem | null>(null);
   const [copied, setCopied] = React.useState(false);
@@ -69,9 +73,11 @@ export default function CandidatesPage() {
   });
 
   // Fetch candidates
-  const loadCandidates = async () => {
+  const loadCandidates = async (scope = adminScope) => {
     try {
-      const res = await fetch('/api/candidates');
+      setIsLoading(true);
+      const query = scope === 'all' ? '?scope=all' : '';
+      const res = await fetch(`/api/candidates${query}`);
       const data = await res.json();
       if (data.candidates) {
         setCandidates(data.candidates);
@@ -84,9 +90,10 @@ export default function CandidatesPage() {
   };
 
   // Fetch active jobs
-  const loadActiveJobs = async () => {
+  const loadActiveJobs = async (scope = adminScope) => {
     try {
-      const res = await fetch('/api/jobs');
+      const query = scope === 'all' ? '?scope=all' : '';
+      const res = await fetch(`/api/jobs${query}`);
       const data = await res.json();
       if (data.jobs) {
         const filtered = data.jobs.filter((j: any) => j.status === 'ACTIVE');
@@ -100,10 +107,17 @@ export default function CandidatesPage() {
   const hasFetched = React.useRef(false);
 
   React.useEffect(() => {
+    try {
+      const stored = localStorage.getItem('auth_user');
+      if (stored) {
+        setCurrentUser(JSON.parse(stored));
+      }
+    } catch {}
+
     if (hasFetched.current) return;
     hasFetched.current = true;
-    loadCandidates();
-    loadActiveJobs();
+    loadCandidates('mine');
+    loadActiveJobs('mine');
   }, []);
 
   const onInviteSubmit = async (data: InviteValues) => {
@@ -515,6 +529,45 @@ export default function CandidatesPage() {
             className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-neutral-200 bg-white placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900"
           />
         </div>
+
+        {currentUser?.role === 'ADMIN' && (
+          <div className="flex items-center gap-1.5 self-start sm:self-auto">
+            <span className="text-xs text-neutral-500 font-medium">Filter View:</span>
+            <div className="inline-flex rounded-md p-0.5 bg-neutral-100 border border-neutral-200 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminScope('mine');
+                  loadCandidates('mine');
+                  loadActiveJobs('mine');
+                }}
+                className={`px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
+                  adminScope === 'mine'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                My Candidates
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminScope('all');
+                  loadCandidates('all');
+                  loadActiveJobs('all');
+                }}
+                className={`px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
+                  adminScope === 'all'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                All Team Candidates
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center gap-2 self-end sm:self-auto">
           <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">
             Status:

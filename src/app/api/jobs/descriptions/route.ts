@@ -12,6 +12,13 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search')?.toLowerCase() || '';
+    const scopeParam = searchParams.get('scope');
+    const allForAdmin = user.role === 'ADMIN' && scopeParam === 'all';
+
+    // Strict multi-tenant user isolation:
+    // User sees ONLY their own job descriptions unless ADMIN explicitly requested scope=all.
+    const jdCondition = allForAdmin ? '' : `WHERE jd."createdBy" = $1`;
+    const jdParams = allForAdmin ? [] : [user.id];
 
     // Query job_descriptions joined with candidate counts from output1 table
     const res = await pool.query(`
@@ -23,6 +30,7 @@ export async function GET(request: Request) {
         jd.created_at as "createdAt",
         COALESCE(jd.status, 'Active') as "status",
         jd.inactive_at as "inactiveAt",
+        COALESCE(jd."createdBy", '') as "createdBy",
         COALESCE(m.candidates_count, 0)::int as "candidatesCount"
       FROM job_descriptions jd
       LEFT JOIN (
@@ -31,8 +39,9 @@ export async function GET(request: Request) {
         WHERE job_code IS NOT NULL
         GROUP BY TRIM(job_code)
       ) m ON TRIM(m.job_code) = TRIM(jd.job_code)
+      ${jdCondition}
       ORDER BY jd.created_at DESC;
-    `);
+    `, jdParams);
 
     let jobDescriptions = res.rows;
 
@@ -44,7 +53,13 @@ export async function GET(request: Request) {
       );
     }
 
-    // Fetch matched candidates summary joined with candidate profiles from candidates table
+    // Fetch matched candidates summary joined with candidate profiles from candidate1 table
+    // Strictly isolate output to records belonging to user's JDs
+    const outCondition = allForAdmin
+      ? ''
+      : `WHERE o.job_code IN (SELECT job_code FROM job_descriptions WHERE "createdBy" = $1)`;
+    const outParams = allForAdmin ? [] : [user.id];
+
     const candidatesRes = await pool.query(`
       SELECT 
         o.id,
@@ -88,7 +103,7 @@ export async function GET(request: Request) {
       FROM output1 o
       LEFT JOIN candidate1 c ON TRIM(c.candidate_id) = TRIM(o.candidate_id)
       ORDER BY o.match_percent DESC NULLS LAST;
-    `);
+    `, outParams);
 
     // Fetch total distinct matched candidates across all jobs in output1
     const totalCandidatesRes = await pool.query(`

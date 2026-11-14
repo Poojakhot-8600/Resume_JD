@@ -23,7 +23,7 @@ export default async function DashboardPage() {
 
   const jobScope = getJobScope(user);
   const candidateScope = getCandidateScope(user);
-  const assessmentScope = user.role === 'ADMIN' ? {} : { candidate: candidateScope };
+  const assessmentScope = { candidate: candidateScope };
 
   // Run queries in parallel
   const [

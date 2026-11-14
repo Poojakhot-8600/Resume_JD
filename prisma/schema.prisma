@@ -33,14 +33,15 @@ enum AssessmentStatus {
 }
 
 model User {
-  id           String   @id @default(uuid())
+  id           String      @id @default(uuid())
   name         String
-  email        String   @unique
+  email        String      @unique
   passwordHash String
-  role         Role     @default(RECRUITER)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  jobs         Job[]    @relation("UserJobs")
+  role         Role        @default(RECRUITER)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  jobs         Job[]       @relation("UserJobs")
+  candidates   Candidate[] @relation("UserCandidates")
 }
 
 model Job {
@@ -102,6 +103,8 @@ model Candidate {
   job               Job?              @relation(fields: [positionId], references: [id], onDelete: SetNull)
 
   // Application-specific fields:
+  userId            String?           @map("user_id")
+  user              User?             @relation("UserCandidates", fields: [userId], references: [id], onDelete: SetNull)
   phone             String?
   assessmentStatus  AssessmentStatus? @default(INVITED) @map("assessment_status")
   assessmentToken   String?           @unique @map("assessment_token")

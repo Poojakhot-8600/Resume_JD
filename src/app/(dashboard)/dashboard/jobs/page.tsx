@@ -45,6 +45,10 @@ export default function JobsPage() {
   const [jobs, setJobs] = React.useState<JobItem[]>([]);
   const [isLoadingJobs, setIsLoadingJobs] = React.useState(true);
 
+  // User role and administrative scope toggle ('mine' = strictly caller's uploads, 'all' = team-wide)
+  const [currentUser, setCurrentUser] = React.useState<any>(null);
+  const [adminScope, setAdminScope] = React.useState<'mine' | 'all'>('mine');
+
   // Status Filter for JDs
   const [jdStatusFilter, setJdStatusFilter] = React.useState('All');
 
@@ -55,9 +59,11 @@ export default function JobsPage() {
   const [copied, setCopied] = React.useState(false);
 
   // Fetch Supabase job_descriptions
-  const fetchJobDescriptions = async () => {
+  const fetchJobDescriptions = async (scope = adminScope) => {
     try {
-      const res = await fetch('/api/jobs/descriptions');
+      setIsLoadingDescriptions(true);
+      const query = scope === 'all' ? '?scope=all' : '';
+      const res = await fetch(`/api/jobs/descriptions${query}`);
       if (!res.ok) {
         console.warn(`Failed to fetch job descriptions (status: ${res.status})`);
         return;
@@ -77,9 +83,11 @@ export default function JobsPage() {
   };
 
   // Fetch assessment jobs
-  const fetchJobs = async () => {
+  const fetchJobs = async (scope = adminScope) => {
     try {
-      const res = await fetch('/api/jobs');
+      setIsLoadingJobs(true);
+      const query = scope === 'all' ? '?scope=all' : '';
+      const res = await fetch(`/api/jobs${query}`);
       if (!res.ok) {
         console.warn(`Failed to fetch assessment jobs (status: ${res.status})`);
         return;
@@ -98,11 +106,17 @@ export default function JobsPage() {
   const hasFetched = React.useRef(false);
 
   React.useEffect(() => {
+    try {
+      const stored = localStorage.getItem('auth_user');
+      if (stored) {
+        setCurrentUser(JSON.parse(stored));
+      }
+    } catch {}
+
     if (hasFetched.current) return;
     hasFetched.current = true;
-    // If we have cached data, fetch silently in background (no loading spinner)
-    fetchJobDescriptions();
-    fetchJobs();
+    fetchJobDescriptions('mine');
+    fetchJobs('mine');
   }, []);
 
   const handleCopyJD = (text: string) => {
@@ -503,39 +517,79 @@ export default function JobsPage() {
         />
       </div>
 
-      {/* Tabs Switcher */}
-      <div className="flex border-b border-neutral-200">
-        <button
-          type="button"
-          onClick={() => setActiveTab('descriptions')}
-          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
-            activeTab === 'descriptions'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
-          }`}
-        >
-          <FileText className="h-4 w-4" />
-          <span>Job Descriptions</span>
-          <span className="ml-1.5 px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700 font-semibold border border-indigo-100">
-            {jobDescriptions.length}
-          </span>
-        </button>
+      {/* Tabs Switcher & Role-Based Scope Filter */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-neutral-200 gap-3">
+        <div className="flex">
+          <button
+            type="button"
+            onClick={() => setActiveTab('descriptions')}
+            className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
+              activeTab === 'descriptions'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
+            }`}
+          >
+            <FileText className="h-4 w-4" />
+            <span>Job Descriptions</span>
+            <span className="ml-1.5 px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700 font-semibold border border-indigo-100">
+              {jobDescriptions.length}
+            </span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('assessmentJobs')}
-          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
-            activeTab === 'assessmentJobs'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
-          }`}
-        >
-          <Layers className="h-4 w-4" />
-          <span>Assessment Models</span>
-          <span className="ml-1.5 px-2 py-0.5 text-xs rounded-full bg-neutral-100 text-neutral-600 font-semibold border border-neutral-200">
-            {jobs.length}
-          </span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('assessmentJobs')}
+            className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
+              activeTab === 'assessmentJobs'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
+            }`}
+          >
+            <Layers className="h-4 w-4" />
+            <span>Assessment Models</span>
+            <span className="ml-1.5 px-2 py-0.5 text-xs rounded-full bg-neutral-100 text-neutral-600 font-semibold border border-neutral-200">
+              {jobs.length}
+            </span>
+          </button>
+        </div>
+
+        {currentUser?.role === 'ADMIN' && (
+          <div className="flex items-center gap-2 pb-2 self-start sm:self-auto">
+            <span className="text-xs text-neutral-500 font-medium">Filter View:</span>
+            <div className="inline-flex rounded-md p-0.5 bg-neutral-100 border border-neutral-200 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminScope('mine');
+                  fetchJobDescriptions('mine');
+                  fetchJobs('mine');
+                }}
+                className={`px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
+                  adminScope === 'mine'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                My Uploads
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminScope('all');
+                  fetchJobDescriptions('all');
+                  fetchJobs('all');
+                }}
+                className={`px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
+                  adminScope === 'all'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                All Team Uploads
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tab 1 Content: Job Descriptions */}

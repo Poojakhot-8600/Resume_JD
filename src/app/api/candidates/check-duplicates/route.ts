@@ -26,7 +26,11 @@ export async function POST(req: Request) {
       if (conditions.length > 0) {
         duplicates = await prisma.candidate.findMany({
           where: {
-            OR: conditions,
+            AND: [
+              // candidate1 has no createdBy — scope via parent job ownership
+              user.role === 'ADMIN' ? {} : { job: { createdBy: user.id } },
+              { OR: conditions },
+            ],
           },
           select: {
             email: true,
@@ -39,7 +43,11 @@ export async function POST(req: Request) {
     } else if (emails && Array.isArray(emails)) {
       duplicates = await prisma.candidate.findMany({
         where: {
-          email: { in: emails.filter(Boolean) },
+          AND: [
+            // candidate1 has no createdBy — scope via parent job ownership
+            user.role === 'ADMIN' ? {} : { job: { createdBy: user.id } },
+            { email: { in: emails.filter(Boolean) } },
+          ],
         },
         select: {
           email: true,

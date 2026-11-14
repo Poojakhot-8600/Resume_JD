@@ -4,7 +4,7 @@ import { prisma } from '@/database/db';
 import { serializeBigInt } from '@/utils/serialize';
 import { getCandidateScope } from '@/services/authz';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const user = await getCurrentUser();
 
@@ -12,14 +12,19 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Tenant-isolated query: ADMIN sees all candidates, RECRUITER sees only candidates from their owned jobs
-    const scope = getCandidateScope(user);
+    const { searchParams } = new URL(request.url);
+    const scopeParam = searchParams.get('scope');
+    const allForAdmin = user.role === 'ADMIN' && scopeParam === 'all';
+
+    // Tenant-isolated query: user sees strictly their own candidates by default;
+    // only ADMIN with scope=all sees all candidates
+    const scope = getCandidateScope(user, { allForAdmin });
 
     const candidates = await prisma.candidate.findMany({
       where: scope,
       include: {
         job: {
-          select: { jobCode: true, title: true, createdBy: true },
+          select: { jdRawText: true, title: true, createdBy: true },
         },
         assessments: {
           select: {

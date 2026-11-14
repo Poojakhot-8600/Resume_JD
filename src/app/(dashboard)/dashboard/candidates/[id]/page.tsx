@@ -39,6 +39,16 @@ export default async function CandidateDetailPage({
     return notFound();
   }
 
+  // Multi-tenant authorization guard: caller must own the parent job (or ADMIN)
+  // candidate1 table has no createdBy column — ownership is via job.createdBy
+  const isOwner =
+    rawCandidate.job?.createdBy === user.id ||
+    user.role === 'ADMIN';
+
+  if (!isOwner) {
+    return notFound();
+  }
+
   const candidate = serializeBigInt(rawCandidate);
   const assessment = candidate.assessments[0];
   const questions = (assessment?.questions as any[]) || [];

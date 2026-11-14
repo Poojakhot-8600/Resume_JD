@@ -25,6 +25,7 @@ export async function POST(req: Request) {
 
     const duplicates = await prisma.job.findMany({
       where: {
+        createdBy: user.id,
         OR: [
           { id: { in: parsedPositionIds } },
           { title: { in: titles?.filter(Boolean) || [] } },

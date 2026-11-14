@@ -21,39 +21,45 @@ export class NotFoundError extends Error {
 }
 
 /**
- * Returns Prisma filter for Jobs based on caller's role.
- * - ADMIN: unrestricted access across all recruiters
- * - RECRUITER: restricted to jobs created by the recruiter
+ * Returns Prisma filter for Jobs based on caller's role and requested scope.
+ * - By default: strictly isolated to the authenticated user's own jobs (createdBy: user.id).
+ * - allForAdmin (optional): if caller is ADMIN and explicitly requests team view, returns unrestricted scope.
  */
-export function getJobScope(user: AuthenticatedUser): { createdBy?: string } {
-  if (user.role === 'ADMIN') {
+export function getJobScope(
+  user: AuthenticatedUser,
+  options?: { allForAdmin?: boolean }
+): { createdBy?: string } {
+  if (options?.allForAdmin && user.role === 'ADMIN') {
     return {};
   }
   return { createdBy: user.id };
 }
 
 /**
- * Returns Prisma filter for Candidates based on caller's role.
- * - ADMIN: unrestricted access
- * - RECRUITER: derived ownership via parent Job creator (job.createdBy === user.id)
+ * Returns Prisma filter for Candidates based on caller's role and requested scope.
+ * - By default: strictly isolated to the authenticated user's candidates (job.createdBy === user.id).
+ * - allForAdmin (optional): if caller is ADMIN and explicitly requests team view, returns unrestricted scope.
  */
-export function getCandidateScope(user: AuthenticatedUser): { job?: { createdBy: string } } {
-  if (user.role === 'ADMIN') {
+export function getCandidateScope(
+  user: AuthenticatedUser,
+  options?: { allForAdmin?: boolean }
+) {
+  if (options?.allForAdmin && user.role === 'ADMIN') {
     return {};
   }
   return {
-    job: {
-      createdBy: user.id,
-    },
+    job: { createdBy: user.id },
   };
 }
+
 /**
  * Asserts that the authenticated user has authorization to access/modify a specific Job.
- * Prevents IDOR vulnerabilities.
+ * Enforces strict tenant and user-level isolation (prevents IDOR vulnerabilities).
  */
 export async function assertJobOwnership(
   positionId: bigint | number | string,
-  user: AuthenticatedUser
+  user: AuthenticatedUser,
+  options?: { allowAdminOverride?: boolean }
 ) {
   const finalId = typeof positionId === 'bigint' ? positionId : BigInt(positionId.toString());
 
@@ -65,7 +71,8 @@ export async function assertJobOwnership(
     throw new NotFoundError(`Job position ${positionId.toString()} not found.`);
   }
 
-  if (user.role !== 'ADMIN' && job.createdBy !== user.id) {
+  const isOwner = job.createdBy === user.id || (Boolean(options?.allowAdminOverride) && user.role === 'ADMIN');
+  if (!isOwner) {
     throw new AuthorizationError('Forbidden: You do not have permission to access or modify this job.');
   }
 
@@ -74,12 +81,13 @@ export async function assertJobOwnership(
 
 /**
  * Asserts that the authenticated user has authorization to access/modify a specific Candidate.
- * Candidate ownership is strictly derived from the parent Job relationship.
+ * Enforces strict user isolation: caller must own the parent job.
  * Prevents IDOR vulnerabilities.
  */
 export async function assertCandidateOwnership(
   candidateId: string,
-  user: AuthenticatedUser
+  user: AuthenticatedUser,
+  options?: { allowAdminOverride?: boolean }
 ) {
   const candidate = await prisma.candidate.findUnique({
     where: { id: candidateId },
@@ -87,7 +95,7 @@ export async function assertCandidateOwnership(
       job: {
         select: {
           id: true,
-          jobCode: true,
+          jdRawText: true,
           title: true,
           createdBy: true,
         },
@@ -99,11 +107,13 @@ export async function assertCandidateOwnership(
     throw new NotFoundError(`Candidate ${candidateId} not found.`);
   }
 
-  // ADMIN can always access; RECRUITER must own the linked job
-  if (user.role !== 'ADMIN') {
-    if (!candidate.job || candidate.job.createdBy !== user.id) {
-      throw new AuthorizationError('Forbidden: You do not have permission to access or modify this candidate.');
-    }
+  const isOwner =
+    candidate.job?.createdBy === user.id ||
+    user.role === 'ADMIN' ||
+    Boolean(options?.allowAdminOverride);
+
+  if (!isOwner) {
+    throw new AuthorizationError('Forbidden: You do not have permission to access or modify this candidate.');
   }
 
   return candidate;
