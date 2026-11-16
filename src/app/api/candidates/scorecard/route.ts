@@ -54,10 +54,10 @@ export async function GET(request: Request) {
         c.current_job_title as "current_job_title",
         c.current_company as "current_company",
         c.years_of_experience as "years_of_experience",
-        c.seniority as "candidate_seniority",
-        COALESCE(c.candidate_location, c.candidate_address) as "location"
-      FROM output1 o
-      LEFT JOIN candidate1 c ON TRIM(c.candidate_id) = TRIM(o.candidate_id)
+        NULL as "candidate_seniority",
+        NULL as "location"
+      FROM output o
+      LEFT JOIN candidates c ON TRIM(c.candidate_id) = TRIM(o.candidate_id)
       WHERE 1=1
     `;
 

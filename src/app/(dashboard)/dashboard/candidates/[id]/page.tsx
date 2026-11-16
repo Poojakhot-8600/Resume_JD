@@ -39,11 +39,11 @@ export default async function CandidateDetailPage({
     return notFound();
   }
 
-  // Multi-tenant authorization guard: caller must own the parent job (or ADMIN)
-  // candidate1 table has no createdBy column — ownership is via job.createdBy
+  // Role-based authorization guard: ADMIN has full access; RECRUITER must own candidate or parent job
   const isOwner =
-    rawCandidate.job?.createdBy === user.id ||
-    user.role === 'ADMIN';
+    user.role === 'ADMIN' ||
+    rawCandidate.createdBy === user.id ||
+    rawCandidate.job?.createdBy === user.id;
 
   if (!isOwner) {
     return notFound();

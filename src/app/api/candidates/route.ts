@@ -14,11 +14,10 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const scopeParam = searchParams.get('scope');
-    const allForAdmin = user.role === 'ADMIN' && scopeParam === 'all';
+    const onlyMine = scopeParam === 'mine';
 
-    // Tenant-isolated query: user sees strictly their own candidates by default;
-    // only ADMIN with scope=all sees all candidates
-    const scope = getCandidateScope(user, { allForAdmin });
+    // Role-based scope: ADMIN sees all candidates by default; RECRUITER strictly sees own candidates
+    const scope = getCandidateScope(user, { onlyMine });
 
     const candidates = await prisma.candidate.findMany({
       where: scope,

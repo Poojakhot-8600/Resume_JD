@@ -322,11 +322,11 @@ export async function preCheckDuplicatesInSupabase(
       seenHashes.add(sha256);
       if (email) seenEmails.add(email);
 
-      // Check existing in Supabase candidate1 table
+      // Check existing in Supabase candidates table
       try {
         const queryRes = await pool.query(
           `SELECT id, candidate_id, candidate_fname, candidate_lname, candidate_email
-           FROM candidate1
+           FROM candidates
            WHERE ($1::text IS NOT NULL AND LOWER(TRIM(candidate_email)) = $1)
               OR resume_text = $2
            LIMIT 1;`,
@@ -440,15 +440,16 @@ export async function processCandidateBatchAsync(
     let n8nError: string | null = null;
     const targetUrl = webhookUrl.trim();
 
+    const cleanResumes = resumesPayload.map((r: any) => ({
+      file_name: r.file_name,
+      file_type: r.file_type,
+      text: r.text,
+    }));
+
     const payload = {
-      batch_id: batchId,
-      batchId: batchId,
-      user_id: userId || 'system',
       userId: userId || 'system',
-      created_by: userId || 'system',
-      createdBy: userId || 'system',
-      resumes: resumesPayload,
-      callback_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/webhooks/n8n/batch-complete`,
+      user_id: userId || 'system',
+      resumes: cleanResumes,
     };
 
     try {
@@ -607,12 +608,11 @@ export async function processCandidateBatchAsync(
         try {
           const queryRes = await pool.query(
             `SELECT id, candidate_id, candidate_fname, candidate_lname, candidate_email, created_at
-             FROM candidate1
-             WHERE upload_batch_id = $1
-                OR ($2::text IS NOT NULL AND LOWER(TRIM(candidate_email)) = $2)
-                OR resume_text = $3
+             FROM candidates
+             WHERE ($1::text IS NOT NULL AND LOWER(TRIM(candidate_email)) = $1)
+                OR resume_text = $2
              LIMIT 1;`,
-            [batchId, email, textVal]
+            [email, textVal]
           );
 
           if (queryRes.rows.length > 0) {
@@ -752,15 +752,21 @@ export async function processJobBatchAsync(
     let n8nError: string | null = null;
     const targetUrl = webhookUrl.trim();
 
+    const cleanJobDescriptions = jobDescriptionsPayload.map((j: any) => {
+      const item: any = {
+        file_name: j.file_name,
+        file_type: j.file_type,
+        text: j.text,
+      };
+      if (j.job_title) item.job_title = j.job_title;
+      if (j.description) item.description = j.description;
+      return item;
+    });
+
     const payload = {
-      batch_id: batchId,
-      batchId: batchId,
-      user_id: userId || 'system',
       userId: userId || 'system',
-      created_by: userId || 'system',
-      createdBy: userId || 'system',
-      job_descriptions: jobDescriptionsPayload,
-      callback_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/webhooks/n8n/batch-complete`,
+      user_id: userId || 'system',
+      job_descriptions: cleanJobDescriptions,
     };
 
     try {

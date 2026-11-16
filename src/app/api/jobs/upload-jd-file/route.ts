@@ -7,7 +7,6 @@ import { createBatch, processJobBatchAsync } from '@/services/batchService';
 import { UploadBatchResponse } from '@/types';
 
 interface JobDescriptionPayloadItem {
-  position_id?: string | null;
   job_title?: string;
   description?: string;
   file_name: string;
@@ -155,7 +154,6 @@ export async function POST(request: Request) {
           const fallbackCharCount = hasText ? textVal.length : descVal.length;
 
           processedJDs.push({
-            position_id: item.position_id,
             job_title: item.job_title,
             description: item.description,
             file_name: fileName,
@@ -203,7 +201,6 @@ export async function POST(request: Request) {
           file_type: j.file_type,
         };
         if (j.text !== undefined) payloadItem.text = j.text;
-        if (j.position_id !== undefined) payloadItem.position_id = j.position_id;
         if (j.job_title !== undefined) payloadItem.job_title = j.job_title;
         if (j.description !== undefined) payloadItem.description = j.description;
         return payloadItem;
