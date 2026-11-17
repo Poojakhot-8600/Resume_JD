@@ -82,9 +82,9 @@ export default function ResultsDashboard() {
   const [jobs, setJobs] = React.useState<JobMinimal[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   
-  // User role and administrative scope toggle ('mine' = strictly caller's results, 'all' = team-wide)
+  // User role and administrative scope toggle ('all' = organization-wide for ADMIN, 'mine' = strictly caller's results)
   const [currentUser, setCurrentUser] = React.useState<any>(null);
-  const [adminScope, setAdminScope] = React.useState<'mine' | 'all'>('mine');
+  const [adminScope, setAdminScope] = React.useState<'mine' | 'all'>('all');
 
   // Filters
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -97,7 +97,7 @@ export default function ResultsDashboard() {
   const loadResults = async (scope = adminScope) => {
     try {
       setIsLoading(true);
-      const query = scope === 'all' ? '?scope=all' : '';
+      const query = scope ? `?scope=${encodeURIComponent(scope)}` : '';
       // Load candidates
       const candRes = await fetch(`/api/candidates${query}`);
       const candData = await candRes.json();
@@ -129,15 +129,24 @@ export default function ResultsDashboard() {
     }
   };
 
+  const hasFetched = React.useRef(false);
+
   React.useEffect(() => {
+    let role = 'RECRUITER';
     try {
       const stored = localStorage.getItem('auth_user');
       if (stored) {
-        setCurrentUser(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        setCurrentUser(parsed);
+        role = parsed.role;
       }
     } catch {}
 
-    loadResults('mine');
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+    const initialScope = role === 'ADMIN' ? 'all' : 'mine';
+    setAdminScope(initialScope);
+    loadResults(initialScope);
   }, []);
 
   // Filter logic

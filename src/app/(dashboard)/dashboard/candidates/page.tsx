@@ -54,9 +54,9 @@ export default function CandidatesPage() {
   const [activeFilter, setActiveFilter] = React.useState('All');
   const [sendingEmailId, setSendingEmailId] = React.useState<string | null>(null);
 
-  // User role and administrative scope toggle ('mine' = strictly caller's candidates, 'all' = team-wide)
+  // User role and administrative scope toggle ('all' = organization-wide for ADMIN, 'mine' = strictly caller's candidates)
   const [currentUser, setCurrentUser] = React.useState<any>(null);
-  const [adminScope, setAdminScope] = React.useState<'mine' | 'all'>('mine');
+  const [adminScope, setAdminScope] = React.useState<'mine' | 'all'>('all');
 
   // Selected candidate for viewing full summary / resume
   const [selectedResumeCandidate, setSelectedResumeCandidate] = React.useState<CandidateItem | null>(null);
@@ -76,7 +76,7 @@ export default function CandidatesPage() {
   const loadCandidates = async (scope = adminScope) => {
     try {
       setIsLoading(true);
-      const query = scope === 'all' ? '?scope=all' : '';
+      const query = scope ? `?scope=${encodeURIComponent(scope)}` : '';
       const res = await fetch(`/api/candidates${query}`);
       const data = await res.json();
       if (data.candidates) {
@@ -92,7 +92,7 @@ export default function CandidatesPage() {
   // Fetch active jobs
   const loadActiveJobs = async (scope = adminScope) => {
     try {
-      const query = scope === 'all' ? '?scope=all' : '';
+      const query = scope ? `?scope=${encodeURIComponent(scope)}` : '';
       const res = await fetch(`/api/jobs${query}`);
       const data = await res.json();
       if (data.jobs) {
@@ -107,17 +107,22 @@ export default function CandidatesPage() {
   const hasFetched = React.useRef(false);
 
   React.useEffect(() => {
+    let role = 'RECRUITER';
     try {
       const stored = localStorage.getItem('auth_user');
       if (stored) {
-        setCurrentUser(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        setCurrentUser(parsed);
+        role = parsed.role;
       }
     } catch {}
 
     if (hasFetched.current) return;
     hasFetched.current = true;
-    loadCandidates('mine');
-    loadActiveJobs('mine');
+    const initialScope = role === 'ADMIN' ? 'all' : 'mine';
+    setAdminScope(initialScope);
+    loadCandidates(initialScope);
+    loadActiveJobs(initialScope);
   }, []);
 
   const onInviteSubmit = async (data: InviteValues) => {

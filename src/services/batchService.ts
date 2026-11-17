@@ -523,6 +523,24 @@ export async function processCandidateBatchAsync(
     );
 
     if (parsedFromN8n) {
+      // Stamp created_by on newly inserted records from this batch
+      if (parsedFromN8n.inserted_records && parsedFromN8n.inserted_records.length > 0) {
+        for (const rec of parsedFromN8n.inserted_records) {
+          const email = (rec.candidate_email || (rec as any).email || '').toLowerCase().trim();
+          const candId = rec.candidate_id || (rec as any).id || '';
+          if (email || candId) {
+            await pool.query(
+              `UPDATE candidates SET created_by = $1 WHERE (LOWER(TRIM(candidate_email)) = $2 OR candidate_id = $3) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+              [userId, email || '___none___', candId || '___none___']
+            ).catch(() => {});
+            await pool.query(
+              `UPDATE output SET created_by = $1 WHERE (LOWER(TRIM(candidate_email)) = $2 OR candidate_id = $3) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+              [userId, email || '___none___', candId || '___none___']
+            ).catch(() => {});
+          }
+        }
+      }
+
       // Finalize batch from n8n response
       const status: BatchStatus =
         parsedFromN8n.failed_count === parsedFromN8n.total_received
@@ -840,6 +858,19 @@ export async function processJobBatchAsync(
     );
 
     if (parsedFromN8n) {
+      // Stamp created_by on newly inserted job descriptions from this batch
+      if (parsedFromN8n.inserted_records && parsedFromN8n.inserted_records.length > 0) {
+        for (const rec of parsedFromN8n.inserted_records) {
+          const code = (rec.job_code || (rec as any).jobCode || '').trim();
+          if (code) {
+            await pool.query(
+              `UPDATE job_descriptions SET created_by = $1 WHERE LOWER(TRIM(job_code)) = LOWER($2) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+              [userId, code]
+            ).catch(() => {});
+          }
+        }
+      }
+
       const status: BatchStatus =
         parsedFromN8n.failed_count === parsedFromN8n.total_received
           ? 'failed'

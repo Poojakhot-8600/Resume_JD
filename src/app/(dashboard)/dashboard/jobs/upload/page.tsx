@@ -84,6 +84,22 @@ export default function UploadJobDescriptionPage() {
     process.env.NEXT_PUBLIC_N8N_JD_WEBHOOK_URL || ''
   );
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleBatchCompleted = React.useCallback((result: UploadBatchStatusResponse) => {
+    setUploadStage('completed');
+    if (
+      result.status === 'failed' ||
+      (result.failed_count > 0 && result.inserted_count === 0 && result.duplicate_count === 0)
+    ) {
+      setError(result.message || 'All job descriptions failed to process.');
+    }
+  }, []);
+
+  const handleBatchError = React.useCallback((err: string) => {
+    setError(err);
+  }, []);
+
   const {
     activeBatchId,
     batchResult,
@@ -96,21 +112,11 @@ export default function UploadJobDescriptionPage() {
     uiState,
   } = useBatchPolling({
     storageKey: 'active_jd_upload_batch',
-    onCompleted: (result) => {
-      setUploadStage('completed');
-      if (
-        result.status === 'failed' ||
-        (result.failed_count > 0 && result.inserted_count === 0 && result.duplicate_count === 0)
-      ) {
-        setError(result.message || 'All job descriptions failed to process.');
-      }
-    },
-    onError: (err) => {
-      setError(err);
-    },
+    onCompleted: handleBatchCompleted,
+    onError: handleBatchError,
   });
 
-  const isProcessing = uploadStage === 'initiated' || uiState === 'processing';
+  const isProcessing = uploadStage === 'initiated' || uploadStage === 'processing' || uiState === 'processing' || isSubmitting;
 
 
   React.useEffect(() => {
@@ -232,8 +238,9 @@ export default function UploadJobDescriptionPage() {
       return;
     }
 
-    if (isUploadingRef.current || isProcessing) return;
+    if (isUploadingRef.current || isSubmitting || isProcessing) return;
     isUploadingRef.current = true;
+    setIsSubmitting(true);
 
     setError(null);
     setBatchSummary(null);
@@ -447,6 +454,7 @@ export default function UploadJobDescriptionPage() {
       setUploadStage('idle');
     } finally {
       isUploadingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 

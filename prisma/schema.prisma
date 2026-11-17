@@ -100,6 +100,7 @@ model Candidate {
   assessmentToken   String?           @unique
   inviteSentAt      DateTime?         @default(now())
   createdBy         String?           @map("created_by")
+  creator           User?             @relation("UserCandidates", fields: [createdBy], references: [id], onDelete: SetNull)
 
   yearsOfExperience Decimal?          @map("years_of_experience") @db.Decimal
   currentJobTitle   String?           @map("current_job_title") @db.VarChar

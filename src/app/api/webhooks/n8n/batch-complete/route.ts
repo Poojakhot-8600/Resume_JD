@@ -92,15 +92,23 @@ export async function POST(request: Request) {
     if (batchUserId && batchUserId !== 'system') {
       const { pool } = await import('@/database/db');
       if (batchType === 'job') {
-        const codes = inserted_records.map((r: any) => r.job_code).filter(Boolean);
+        const codes = inserted_records
+          .map((r: any) => r.job_code || r.jobCode || r.position_id || r.positionId)
+          .filter(Boolean);
         if (codes.length > 0) {
           await pool.query(
-            `UPDATE job_descriptions SET created_by = $1 WHERE job_code = ANY($2::text[]) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
-            [batchUserId, codes]
+            `UPDATE job_descriptions SET created_by = $1 WHERE (job_code = ANY($2::text[]) OR LOWER(job_code) = ANY($3::text[])) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+            [batchUserId, codes, codes.map((c: string) => c.toLowerCase())]
           ).catch(() => {});
         }
       } else {
-        const emails = inserted_records.map((r: any) => r.candidate_email).filter(Boolean);
+        const emails = inserted_records
+          .map((r: any) => r.candidate_email || r.candidateEmail || r.email)
+          .filter(Boolean);
+        const candIds = inserted_records
+          .map((r: any) => r.candidate_id || r.candidateId || r.id)
+          .filter(Boolean);
+
         if (emails.length > 0) {
           await pool.query(
             `UPDATE candidates SET created_by = $1 WHERE LOWER(candidate_email) = ANY($2::text[]) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
@@ -109,6 +117,16 @@ export async function POST(request: Request) {
           await pool.query(
             `UPDATE output SET created_by = $1 WHERE LOWER(candidate_email) = ANY($2::text[]) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
             [batchUserId, emails.map((e: string) => e.toLowerCase())]
+          ).catch(() => {});
+        }
+        if (candIds.length > 0) {
+          await pool.query(
+            `UPDATE candidates SET created_by = $1 WHERE candidate_id = ANY($2::text[]) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+            [batchUserId, candIds.map(String)]
+          ).catch(() => {});
+          await pool.query(
+            `UPDATE output SET created_by = $1 WHERE candidate_id = ANY($2::text[]) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+            [batchUserId, candIds.map(String)]
           ).catch(() => {});
         }
       }

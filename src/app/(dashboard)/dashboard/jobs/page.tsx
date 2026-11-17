@@ -45,9 +45,9 @@ export default function JobsPage() {
   const [jobs, setJobs] = React.useState<JobItem[]>([]);
   const [isLoadingJobs, setIsLoadingJobs] = React.useState(true);
 
-  // User role and administrative scope toggle ('mine' = strictly caller's uploads, 'all' = team-wide)
+  // User role and administrative scope toggle ('all' = organization-wide for ADMIN, 'mine' = strictly caller's uploads)
   const [currentUser, setCurrentUser] = React.useState<any>(null);
-  const [adminScope, setAdminScope] = React.useState<'mine' | 'all'>('mine');
+  const [adminScope, setAdminScope] = React.useState<'mine' | 'all'>('all');
 
   // Status Filter for JDs
   const [jdStatusFilter, setJdStatusFilter] = React.useState('All');
@@ -62,7 +62,7 @@ export default function JobsPage() {
   const fetchJobDescriptions = async (scope = adminScope) => {
     try {
       setIsLoadingDescriptions(true);
-      const query = scope === 'all' ? '?scope=all' : '';
+      const query = scope ? `?scope=${encodeURIComponent(scope)}` : '';
       const res = await fetch(`/api/jobs/descriptions${query}`);
       if (!res.ok) {
         console.warn(`Failed to fetch job descriptions (status: ${res.status})`);
@@ -86,7 +86,7 @@ export default function JobsPage() {
   const fetchJobs = async (scope = adminScope) => {
     try {
       setIsLoadingJobs(true);
-      const query = scope === 'all' ? '?scope=all' : '';
+      const query = scope ? `?scope=${encodeURIComponent(scope)}` : '';
       const res = await fetch(`/api/jobs${query}`);
       if (!res.ok) {
         console.warn(`Failed to fetch assessment jobs (status: ${res.status})`);
@@ -106,17 +106,22 @@ export default function JobsPage() {
   const hasFetched = React.useRef(false);
 
   React.useEffect(() => {
+    let role = 'RECRUITER';
     try {
       const stored = localStorage.getItem('auth_user');
       if (stored) {
-        setCurrentUser(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        setCurrentUser(parsed);
+        role = parsed.role;
       }
     } catch {}
 
     if (hasFetched.current) return;
     hasFetched.current = true;
-    fetchJobDescriptions('mine');
-    fetchJobs('mine');
+    const initialScope = role === 'ADMIN' ? 'all' : 'mine';
+    setAdminScope(initialScope);
+    fetchJobDescriptions(initialScope);
+    fetchJobs(initialScope);
   }, []);
 
   const handleCopyJD = (text: string) => {

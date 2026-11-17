@@ -23,7 +23,7 @@ export async function GET(request: Request) {
       where: scope,
       include: {
         job: {
-          select: { jdRawText: true, title: true, createdBy: true },
+          select: { jobCode: true, jdRawText: true, title: true, createdBy: true },
         },
         assessments: {
           select: {

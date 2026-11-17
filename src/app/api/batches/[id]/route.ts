@@ -18,9 +18,11 @@ export async function GET(
       return NextResponse.json({ error: 'Batch ID is required' }, { status: 400 });
     }
 
+    // Enforce authorization: ADMINs can monitor any batch across the organization;
+    // RECRUITERs are strictly restricted to their own batches.
     const { batch, unauthorized } = await getBatchById(
       id,
-      user.id
+      user.role === 'ADMIN' ? undefined : user.id
     );
 
     if (unauthorized) {
