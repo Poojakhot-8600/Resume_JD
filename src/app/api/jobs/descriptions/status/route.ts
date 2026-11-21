@@ -22,12 +22,13 @@ export async function PUT(request: Request) {
       `UPDATE job_descriptions 
        SET status = $1, inactive_at = $2 
        WHERE content_hash = $3 
+         AND (created_by = $4 OR $5 = 'ADMIN')
        RETURNING *`,
-      [status, inactiveAt, contentHash]
+      [status, inactiveAt, contentHash, user.id, user.role]
     );
 
     if (res.rowCount === 0) {
-      return NextResponse.json({ error: 'Job description not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Job description not found or unauthorized' }, { status: 404 });
     }
 
     return NextResponse.json({ success: true, data: res.rows[0] });

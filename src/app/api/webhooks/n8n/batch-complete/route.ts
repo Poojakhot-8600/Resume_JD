@@ -87,6 +87,51 @@ export async function POST(request: Request) {
       metadata: body.metadata,
     });
 
+    // Stamp created_by = batch.user_id on records from this batch to preserve recruiter privacy
+    const batchUserId = (batch as any).user_id;
+    if (batchUserId && batchUserId !== 'system') {
+      const { pool } = await import('@/database/db');
+      if (batchType === 'job') {
+        const codes = inserted_records
+          .map((r: any) => r.job_code || r.jobCode || r.position_id || r.positionId)
+          .filter(Boolean);
+        if (codes.length > 0) {
+          await pool.query(
+            `UPDATE job_descriptions SET created_by = $1 WHERE (job_code = ANY($2::text[]) OR LOWER(job_code) = ANY($3::text[])) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+            [batchUserId, codes, codes.map((c: string) => c.toLowerCase())]
+          ).catch(() => {});
+        }
+      } else {
+        const emails = inserted_records
+          .map((r: any) => r.candidate_email || r.candidateEmail || r.email)
+          .filter(Boolean);
+        const candIds = inserted_records
+          .map((r: any) => r.candidate_id || r.candidateId || r.id)
+          .filter(Boolean);
+
+        if (emails.length > 0) {
+          await pool.query(
+            `UPDATE candidates SET created_by = $1 WHERE LOWER(candidate_email) = ANY($2::text[]) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+            [batchUserId, emails.map((e: string) => e.toLowerCase())]
+          ).catch(() => {});
+          await pool.query(
+            `UPDATE output SET created_by = $1 WHERE LOWER(candidate_email) = ANY($2::text[]) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+            [batchUserId, emails.map((e: string) => e.toLowerCase())]
+          ).catch(() => {});
+        }
+        if (candIds.length > 0) {
+          await pool.query(
+            `UPDATE candidates SET created_by = $1 WHERE candidate_id = ANY($2::text[]) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+            [batchUserId, candIds.map(String)]
+          ).catch(() => {});
+          await pool.query(
+            `UPDATE output SET created_by = $1 WHERE candidate_id = ANY($2::text[]) AND (created_by IS NULL OR created_by = 'seeded-admin-user-id')`,
+            [batchUserId, candIds.map(String)]
+          ).catch(() => {});
+        }
+      }
+    }
+
     console.log(`[Webhook n8n batch-complete] Batch ${batchId} updated to ${status}.`);
 
     return NextResponse.json({

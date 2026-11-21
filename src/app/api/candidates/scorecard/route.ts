@@ -54,14 +54,22 @@ export async function GET(request: Request) {
         c.current_job_title as "current_job_title",
         c.current_company as "current_company",
         c.years_of_experience as "years_of_experience",
-        c.seniority as "candidate_seniority",
-        COALESCE(c.candidate_location, c.candidate_address) as "location"
-      FROM output1 o
-      LEFT JOIN candidate1 c ON TRIM(c.candidate_id) = TRIM(o.candidate_id)
+        NULL as "candidate_seniority",
+        NULL as "location"
+      FROM output o
+      LEFT JOIN candidates c ON TRIM(c.candidate_id) = TRIM(o.candidate_id)
       WHERE 1=1
     `;
 
     const params: any[] = [];
+
+    // Multi-tenant isolation: user can only access scorecards they own (or linked to their JDs)
+    // ADMIN can access all if explicitly needed, but standard is isolated to caller
+    if (user.role !== 'ADMIN') {
+      params.push(user.id);
+      query += ` AND (o.created_by = $${params.length} OR o.job_code IN (SELECT job_code FROM job_descriptions WHERE created_by = $${params.length}))`;
+    }
+
     if (id) {
       params.push(id);
       query += ` AND o.id = $${params.length}`;

@@ -32,6 +32,14 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
     onError,
   } = options;
 
+  // Keep stable refs to dynamic callbacks to avoid infinite render loops
+  const onCompletedRef = useRef(onCompleted);
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onCompletedRef.current = onCompleted;
+    onErrorRef.current = onError;
+  });
+
   const [uiState, setUiState] = useState<UploadUiState>('idle');
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
   const [batchResult, setBatchResult] = useState<UploadBatchStatusResponse | null>(null);
@@ -81,6 +89,7 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
 
   const pollBatchStatus = useCallback(
     async (batchId: string) => {
+      // Prevent overlapping polls for the same batch
       if (isPollingRef.current) return;
       isPollingRef.current = true;
 
@@ -89,7 +98,6 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
       abortControllerRef.current = controller;
 
       try {
-        // Use centralized apiFetch wrapper (handles 401 and AbortError globally)
         const res = await apiFetch(`/api/batches/${encodeURIComponent(batchId)}`, {
           signal: controller.signal,
           headers: {
@@ -106,7 +114,7 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
           setUiState('failed');
           const msg = `Batch "${batchId}" not found.`;
           setPollingError(msg);
-          if (onError) onError(msg);
+          onErrorRef.current?.(msg);
           if (storageKey && typeof window !== 'undefined') {
             sessionStorage.removeItem(storageKey);
           }
@@ -132,6 +140,7 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
           attemptCountRef.current += 1;
           isPollingRef.current = false;
           if (attemptCountRef.current < maxAttempts) {
+            clearTimer();
             timerRef.current = setTimeout(() => pollBatchStatus(batchId), pollIntervalMs);
           }
           return;
@@ -141,8 +150,6 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
 
         if (currentStatus === 'processing' || currentStatus === 'pending') {
           attemptCountRef.current += 1;
-
-          // Keep active upload registered to immunize session from idle timeout
           registerActiveUpload(batchId);
 
           if (attemptCountRef.current >= maxAttempts) {
@@ -154,6 +161,7 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
 
           setUiState('processing');
           isPollingRef.current = false;
+          clearTimer();
           timerRef.current = setTimeout(() => pollBatchStatus(batchId), pollIntervalMs);
           return;
         }
@@ -163,7 +171,8 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
           currentStatus === 'completed_with_errors' ||
           currentStatus === 'failed'
         ) {
-          // Final status reached! Unregister active upload immunity
+          // Final status reached! Unregister active upload immunity and stop polling
+          clearTimer();
           unregisterActiveUpload(batchId);
           currentBatchIdRef.current = null;
           isPollingRef.current = false;
@@ -175,15 +184,14 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
             sessionStorage.removeItem(storageKey);
           }
 
-          if (onCompleted) {
-            onCompleted(data);
-          }
+          onCompletedRef.current?.(data);
           return;
         }
 
         // Unknown status fallback
         attemptCountRef.current += 1;
         isPollingRef.current = false;
+        clearTimer();
         timerRef.current = setTimeout(() => pollBatchStatus(batchId), pollIntervalMs);
       } catch (err: any) {
         if (err.name === 'AbortError') {
@@ -199,17 +207,23 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
           setPollingError('Network connection issue while checking batch status. Will retry...');
         }
 
+        clearTimer();
         timerRef.current = setTimeout(
           () => pollBatchStatus(batchId),
           pollIntervalMs + Math.min(consecutiveNetworkErrorsRef.current * 1000, 5000)
         );
       }
     },
-    [maxAttempts, pollIntervalMs, storageKey, onCompleted, onError, abortActiveRequest]
+    [maxAttempts, pollIntervalMs, storageKey, abortActiveRequest, clearTimer]
   );
 
   const startPolling = useCallback(
     (batchId: string) => {
+      // If already actively polling this exact batch, do not re-trigger
+      if (currentBatchIdRef.current === batchId && (isPollingRef.current || timerRef.current)) {
+        return;
+      }
+
       clearTimer();
       abortActiveRequest();
       isPollingRef.current = false;
@@ -217,7 +231,6 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
       consecutiveNetworkErrorsRef.current = 0;
 
       currentBatchIdRef.current = batchId;
-      // Immunize active session from idle timeout during upload processing
       registerActiveUpload(batchId);
 
       setActiveBatchId(batchId);
@@ -262,7 +275,7 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
     };
   }, [clearTimer, abortActiveRequest]);
 
-  // Page refresh recovery & unmount cleanup
+  // Page refresh recovery (runs strictly ONCE on mount)
   useEffect(() => {
     if (storageKey && typeof window !== 'undefined') {
       const saved = sessionStorage.getItem(storageKey);
@@ -280,7 +293,8 @@ export function useBatchPolling(options: UseBatchPollingOptions = {}) {
         currentBatchIdRef.current = null;
       }
     };
-  }, [storageKey, startPolling, clearTimer, abortActiveRequest]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return {
     uiState,

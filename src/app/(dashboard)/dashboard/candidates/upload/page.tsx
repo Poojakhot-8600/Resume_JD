@@ -38,6 +38,7 @@ export default function UploadCandidateResumePage() {
   const isUploadingRef = useRef(false);
 
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadStage, setUploadStage] = useState<'idle' | 'initiated' | 'processing' | 'completed'>('idle');
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +54,20 @@ export default function UploadCandidateResumePage() {
     process.env.NEXT_PUBLIC_N8N_CANDIDATE_RESUME_WEBHOOK_URL || ''
   );
 
+  const handleBatchCompleted = React.useCallback((result: UploadBatchStatusResponse) => {
+    setUploadStage('completed');
+    if (
+      result.status === 'failed' ||
+      (result.failed_count > 0 && result.inserted_count === 0 && result.duplicate_count === 0)
+    ) {
+      setError(result.message || 'All candidate resumes failed to process.');
+    }
+  }, []);
+
+  const handleBatchError = React.useCallback((err: string) => {
+    setError(err);
+  }, []);
+
   const {
     activeBatchId,
     batchResult,
@@ -65,21 +80,11 @@ export default function UploadCandidateResumePage() {
     uiState,
   } = useBatchPolling({
     storageKey: 'active_candidate_upload_batch',
-    onCompleted: (result) => {
-      setUploadStage('completed');
-      if (
-        result.status === 'failed' ||
-        (result.failed_count > 0 && result.inserted_count === 0 && result.duplicate_count === 0)
-      ) {
-        setError(result.message || 'All candidate resumes failed to process.');
-      }
-    },
-    onError: (err) => {
-      setError(err);
-    },
+    onCompleted: handleBatchCompleted,
+    onError: handleBatchError,
   });
 
-  const isProcessing = uploadStage === 'initiated' || uiState === 'processing';
+  const isProcessing = uploadStage === 'initiated' || uploadStage === 'processing' || uiState === 'processing' || isSubmitting;
 
 
   React.useEffect(() => {
@@ -185,8 +190,9 @@ export default function UploadCandidateResumePage() {
       return;
     }
 
-    if (isUploadingRef.current || isProcessing) return;
+    if (isUploadingRef.current || isSubmitting || isProcessing) return;
     isUploadingRef.current = true;
+    setIsSubmitting(true);
 
     setError(null);
     resetPolling();
@@ -274,6 +280,7 @@ export default function UploadCandidateResumePage() {
       setUploadStage('idle');
     } finally {
       isUploadingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 

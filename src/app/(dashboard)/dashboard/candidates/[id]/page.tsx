@@ -39,6 +39,16 @@ export default async function CandidateDetailPage({
     return notFound();
   }
 
+  // Role-based authorization guard: ADMIN has full access; RECRUITER must own candidate or parent job
+  const isOwner =
+    user.role === 'ADMIN' ||
+    rawCandidate.createdBy === user.id ||
+    rawCandidate.job?.createdBy === user.id;
+
+  if (!isOwner) {
+    return notFound();
+  }
+
   const candidate = serializeBigInt(rawCandidate);
   const assessment = candidate.assessments[0];
   const questions = (assessment?.questions as any[]) || [];

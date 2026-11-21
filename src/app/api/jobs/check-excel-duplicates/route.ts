@@ -23,8 +23,8 @@ export async function POST(request: Request) {
 
     if (positionIds && positionIds.length > 0) {
       const posRes = await pool.query(
-        'SELECT job_code FROM job_descriptions WHERE job_code = ANY($1::text[])',
-        [positionIds]
+        'SELECT job_code FROM job_descriptions WHERE job_code = ANY($1::text[]) AND (created_by = $2 OR created_by IS NULL)',
+        [positionIds, user.id]
       );
       posRes.rows.forEach((r: any) => {
         if (r.job_code) existingPositionIds.add(r.job_code.trim());
@@ -44,8 +44,8 @@ export async function POST(request: Request) {
       });
 
       const hashRes = await pool.query(
-        'SELECT content_hash FROM job_descriptions WHERE content_hash = ANY($1::text[])',
-        [hashes]
+        'SELECT content_hash FROM job_descriptions WHERE content_hash = ANY($1::text[]) AND (created_by = $2 OR created_by IS NULL)',
+        [hashes, user.id]
       );
       hashRes.rows.forEach((r: any) => {
         if (r.content_hash && hashToIndex.has(r.content_hash)) {

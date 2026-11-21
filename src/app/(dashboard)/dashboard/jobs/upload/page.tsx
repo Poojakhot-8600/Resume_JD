@@ -2,18 +2,18 @@
 
 import React, { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  UploadCloud, 
-  CheckCircle2, 
-  AlertTriangle, 
+import {
+  UploadCloud,
+  CheckCircle2,
+  AlertTriangle,
   AlertCircle,
   Layers,
   Info,
-  Loader2, 
-  FileText, 
-  ArrowLeft, 
-  Copy, 
-  Check, 
+  Loader2,
+  FileText,
+  ArrowLeft,
+  Copy,
+  Check,
   FileCode,
   Sparkles,
   Briefcase,
@@ -27,7 +27,6 @@ import {
 } from 'lucide-react';
 import { extractTextFromClientFile, extractPdfTextInBrowser, validateExtractedPdfText } from '@/utils/clientPdfParser';
 interface ProcessedJDItem {
-  position_id?: string | null;
   job_title?: string;
   description?: string;
   file_name: string;
@@ -36,14 +35,12 @@ interface ProcessedJDItem {
   wordCount: number;
   charCount: number;
 }
-
 interface BatchJDResult {
   success: boolean;
   count: number;
   job_descriptions: ProcessedJDItem[];
   webhookPayload: {
     job_descriptions: Array<{
-      position_id?: string | null;
       job_title?: string;
       description?: string;
       file_name: string;
@@ -87,6 +84,22 @@ export default function UploadJobDescriptionPage() {
     process.env.NEXT_PUBLIC_N8N_JD_WEBHOOK_URL || ''
   );
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleBatchCompleted = React.useCallback((result: UploadBatchStatusResponse) => {
+    setUploadStage('completed');
+    if (
+      result.status === 'failed' ||
+      (result.failed_count > 0 && result.inserted_count === 0 && result.duplicate_count === 0)
+    ) {
+      setError(result.message || 'All job descriptions failed to process.');
+    }
+  }, []);
+
+  const handleBatchError = React.useCallback((err: string) => {
+    setError(err);
+  }, []);
+
   const {
     activeBatchId,
     batchResult,
@@ -99,21 +112,11 @@ export default function UploadJobDescriptionPage() {
     uiState,
   } = useBatchPolling({
     storageKey: 'active_jd_upload_batch',
-    onCompleted: (result) => {
-      setUploadStage('completed');
-      if (
-        result.status === 'failed' ||
-        (result.failed_count > 0 && result.inserted_count === 0 && result.duplicate_count === 0)
-      ) {
-        setError(result.message || 'All job descriptions failed to process.');
-      }
-    },
-    onError: (err) => {
-      setError(err);
-    },
+    onCompleted: handleBatchCompleted,
+    onError: handleBatchError,
   });
 
-  const isProcessing = uploadStage === 'initiated' || uiState === 'processing';
+  const isProcessing = uploadStage === 'initiated' || uploadStage === 'processing' || uiState === 'processing' || isSubmitting;
 
 
   React.useEffect(() => {
@@ -235,8 +238,9 @@ export default function UploadJobDescriptionPage() {
       return;
     }
 
-    if (isUploadingRef.current || isProcessing) return;
+    if (isUploadingRef.current || isSubmitting || isProcessing) return;
     isUploadingRef.current = true;
+    setIsSubmitting(true);
 
     setError(null);
     setBatchSummary(null);
@@ -247,7 +251,6 @@ export default function UploadJobDescriptionPage() {
     try {
       // 1. Extract real readable text from each selected file using client-side extraction
       const jobDescriptionsPayload: Array<{
-        position_id?: string | null;
         job_title?: string;
         description?: string;
         file_name: string;
@@ -269,7 +272,7 @@ export default function UploadJobDescriptionPage() {
             const workbook = XLSX.read(arrayBuffer, { type: 'array' });
             const sheetName = workbook.SheetNames[0];
             const sheet = workbook.Sheets[sheetName];
-            
+
             // 1. Use sheet_to_json with header: 1
             const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
 
@@ -281,12 +284,12 @@ export default function UploadJobDescriptionPage() {
             // 2. Detect header row
             let idCol = 0, titleCol = 1, descCol = 2;
             let hasHeader = false;
-            
+
             const firstRow = rows[0].map((cell: any) => String(cell).toLowerCase().replace(/[\s_]+/g, ''));
             const idMatch = firstRow.findIndex((c: string) => /id|code/i.test(c));
             const titleMatch = firstRow.findIndex((c: string) => /title|role|positionname/i.test(c));
             const descMatch = firstRow.findIndex((c: string) => /description|jd/i.test(c));
-            
+
             if (idMatch !== -1 && titleMatch !== -1 && descMatch !== -1) {
               hasHeader = true;
               idCol = idMatch;
@@ -302,7 +305,7 @@ export default function UploadJobDescriptionPage() {
             for (const row of dataRows) {
               if (!row || row.length === 0) continue;
               readCount++;
-              
+
               const posId = row[idCol] ? String(row[idCol]).trim() : null;
               const jobTitle = row[titleCol] ? String(row[titleCol]).trim() : '';
               const jdText = row[descCol] ? String(row[descCol]).trim() : '';
@@ -322,8 +325,8 @@ export default function UploadJobDescriptionPage() {
 
             // Deduplicate within the current upload batch
             for (const r of validRows) {
-              const isDuplicate = 
-                (r.posId && seenPosIds.has(r.posId)) || 
+              const isDuplicate =
+                (r.posId && seenPosIds.has(r.posId)) ||
                 seenTexts.has(r.jdText);
 
               if (isDuplicate) {
@@ -336,7 +339,6 @@ export default function UploadJobDescriptionPage() {
               uniqueCount++;
 
               jobDescriptionsPayload.push({
-                position_id: r.posId,
                 job_title: r.jobTitle,
                 description: r.jdText,
                 file_name: file.name,
@@ -388,17 +390,7 @@ export default function UploadJobDescriptionPage() {
           return;
         }
 
-        let extractedPosId: string | null = null;
-        if (isPdf || ['txt', 'doc', 'docx'].includes(ext)) {
-          // Look for "Position ID: XXX" or "Job ID: XXX" etc.
-          const match = textVal.match(/(?:position id|job id|job code|requisition id)\s*[:\-]?\s*([a-zA-Z0-9\-_]+)/i);
-          if (match && match[1]) {
-            extractedPosId = match[1].trim();
-          }
-        }
-
         jobDescriptionsPayload.push({
-          position_id: extractedPosId,
           file_name: extracted.fileName,
           file_type: extracted.fileType,
           text: textVal,
@@ -418,9 +410,9 @@ export default function UploadJobDescriptionPage() {
       // 2. Pre-check: If all items were skipped locally (e.g. from Excel duplicate checks)
       if (jobDescriptionsPayload.length === 0) {
         if (totalSkippedPosIdCount > 0 || totalSkippedJdCount > 0) {
-           setError(`All rows were skipped as duplicates (${totalSkippedPosIdCount} by Position_ID, ${totalSkippedJdCount} by JD).`);
+          setError(`All rows were skipped as duplicates (${totalSkippedPosIdCount} by Position_ID, ${totalSkippedJdCount} by JD).`);
         } else {
-           setError('No valid data found to upload.');
+          setError('No valid data found to upload.');
         }
         setUploadStage('idle');
         return;
@@ -462,6 +454,7 @@ export default function UploadJobDescriptionPage() {
       setUploadStage('idle');
     } finally {
       isUploadingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -527,11 +520,10 @@ export default function UploadJobDescriptionPage() {
           onDragOver={handleDrag}
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
-          className={`relative border-2 border-dashed rounded-2xl p-8 sm:p-12 text-center transition-all cursor-pointer ${
-            dragActive
-              ? 'border-indigo-500 bg-indigo-50/50 scale-[1.005]'
-              : 'border-neutral-300 hover:border-indigo-400 bg-white hover:bg-neutral-50/50'
-          }`}
+          className={`relative border-2 border-dashed rounded-2xl p-8 sm:p-12 text-center transition-all cursor-pointer ${dragActive
+            ? 'border-indigo-500 bg-indigo-50/50 scale-[1.005]'
+            : 'border-neutral-300 hover:border-indigo-400 bg-white hover:bg-neutral-50/50'
+            }`}
         >
           <input
             ref={fileInputRef}
@@ -779,28 +771,26 @@ export default function UploadJobDescriptionPage() {
         <div className="space-y-5 animate-in fade-in duration-200">
           {/* 1. Header Banner based on results */}
           <div
-            className={`p-5 rounded-2xl border shadow-xs space-y-4 ${
-              batchResult.inserted_count > 0 && batchResult.duplicate_count === 0 && batchResult.failed_count === 0
-                ? 'bg-emerald-50/70 border-emerald-200'
-                : batchResult.inserted_count === 0 && batchResult.duplicate_count > 0 && batchResult.failed_count === 0
+            className={`p-5 rounded-2xl border shadow-xs space-y-4 ${batchResult.inserted_count > 0 && batchResult.duplicate_count === 0 && batchResult.failed_count === 0
+              ? 'bg-emerald-50/70 border-emerald-200'
+              : batchResult.inserted_count === 0 && batchResult.duplicate_count > 0 && batchResult.failed_count === 0
                 ? 'bg-amber-50/70 border-amber-200'
                 : batchResult.inserted_count === 0 && batchResult.failed_count > 0
-                ? 'bg-red-50/70 border-red-200'
-                : 'bg-white border-neutral-200'
-            }`}
+                  ? 'bg-red-50/70 border-red-200'
+                  : 'bg-white border-neutral-200'
+              }`}
           >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-start gap-3.5">
                 <div
-                  className={`p-2.5 rounded-xl mt-0.5 shrink-0 ${
-                    batchResult.inserted_count > 0 && batchResult.duplicate_count === 0 && batchResult.failed_count === 0
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : batchResult.inserted_count === 0 && batchResult.duplicate_count > 0 && batchResult.failed_count === 0
+                  className={`p-2.5 rounded-xl mt-0.5 shrink-0 ${batchResult.inserted_count > 0 && batchResult.duplicate_count === 0 && batchResult.failed_count === 0
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : batchResult.inserted_count === 0 && batchResult.duplicate_count > 0 && batchResult.failed_count === 0
                       ? 'bg-amber-100 text-amber-700'
                       : batchResult.inserted_count === 0 && batchResult.failed_count > 0
-                      ? 'bg-red-100 text-red-700'
-                      : 'bg-indigo-100 text-indigo-700'
-                  }`}
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-indigo-100 text-indigo-700'
+                    }`}
                 >
                   {batchResult.inserted_count > 0 && batchResult.duplicate_count === 0 && batchResult.failed_count === 0 ? (
                     <CheckCircle2 className="h-6 w-6" />
@@ -818,10 +808,10 @@ export default function UploadJobDescriptionPage() {
                       {batchResult.inserted_count > 0 && batchResult.duplicate_count === 0 && batchResult.failed_count === 0
                         ? 'All Job Descriptions Inserted Successfully'
                         : batchResult.inserted_count === 0 && batchResult.duplicate_count > 0 && batchResult.failed_count === 0
-                        ? 'Duplicate Job Descriptions Found'
-                        : batchResult.inserted_count === 0 && batchResult.failed_count > 0
-                        ? 'Job Description Upload Failed'
-                        : 'Upload Results Summary'}
+                          ? 'Duplicate Job Descriptions Found'
+                          : batchResult.inserted_count === 0 && batchResult.failed_count > 0
+                            ? 'Job Description Upload Failed'
+                            : 'Upload Results Summary'}
                     </span>
                     <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700 border border-neutral-200">
                       {batchResult.total_received} Total Received
@@ -893,157 +883,157 @@ export default function UploadJobDescriptionPage() {
           {/* A. Successfully Inserted Records */}
           {((batchResult.inserted_job_descriptions && batchResult.inserted_job_descriptions.length > 0) ||
             (batchResult.inserted_records && batchResult.inserted_records.length > 0)) && (
-            <div className="bg-white rounded-xl border border-neutral-200 p-5 shadow-xs space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                  <span>
-                    Successfully Inserted (
-                    {(batchResult.inserted_job_descriptions || batchResult.inserted_records || []).length}
-                    )
+              <div className="bg-white rounded-xl border border-neutral-200 p-5 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>
+                      Successfully Inserted (
+                      {(batchResult.inserted_job_descriptions || batchResult.inserted_records || []).length}
+                      )
+                    </span>
                   </span>
-                </span>
-                <span className="text-[11px] text-neutral-400">Added to database</span>
-              </div>
-              <div className="space-y-2">
-                {(batchResult.inserted_job_descriptions || batchResult.inserted_records || []).map((item, idx) => {
-                  const isExpanded = expandedFileIdx === idx;
-                  return (
-                    <div key={`inserted-${item.file_name}-${idx}`} className="border border-neutral-200 rounded-lg overflow-hidden">
-                      <div className="p-3.5 bg-neutral-50 flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="font-mono text-neutral-400 text-[11px] w-5">#{idx + 1}</span>
-                          <Briefcase className="h-4 w-4 text-emerald-600 shrink-0" />
-                          <span className="font-semibold text-neutral-900 truncate max-w-xs sm:max-w-md">
-                            {item.job_title || item.file_name}
-                          </span>
-                          {item.job_code && (
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold shrink-0">
-                              {item.job_code}
+                  <span className="text-[11px] text-neutral-400">Added to database</span>
+                </div>
+                <div className="space-y-2">
+                  {(batchResult.inserted_job_descriptions || batchResult.inserted_records || []).map((item, idx) => {
+                    const isExpanded = expandedFileIdx === idx;
+                    return (
+                      <div key={`inserted-${item.file_name}-${idx}`} className="border border-neutral-200 rounded-lg overflow-hidden">
+                        <div className="p-3.5 bg-neutral-50 flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="font-mono text-neutral-400 text-[11px] w-5">#{idx + 1}</span>
+                            <Briefcase className="h-4 w-4 text-emerald-600 shrink-0" />
+                            <span className="font-semibold text-neutral-900 truncate max-w-xs sm:max-w-md">
+                              {item.job_title || item.file_name}
                             </span>
-                          )}
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
-                            Inserted
-                          </span>
-                        </div>
+                            {item.job_code && (
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold shrink-0">
+                                {item.job_code}
+                              </span>
+                            )}
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                              Inserted
+                            </span>
+                          </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          {(item.text || item.description) && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleCopyText(idx, item.text || item.description || '')}
-                                className="p-1 text-neutral-500 hover:text-neutral-900 text-xs font-medium flex items-center gap-1 cursor-pointer"
-                              >
-                                {copiedTextIdx === idx ? (
-                                  <span className="text-emerald-600 font-semibold">Copied!</span>
-                                ) : (
-                                  <Copy className="h-3.5 w-3.5" />
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setExpandedFileIdx(isExpanded ? null : idx)}
-                                className="p-1 text-neutral-500 hover:text-neutral-900 text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                              >
-                                <span>{isExpanded ? 'Hide Text' : 'View Text'}</span>
-                                {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      {isExpanded && (item.text || item.description) && (
-                        <div className="p-4 bg-white border-t border-neutral-200 space-y-2">
-                          <div className="p-3 bg-neutral-50 rounded border border-neutral-200 max-h-56 overflow-y-auto font-mono text-xs text-neutral-800 leading-relaxed whitespace-pre-wrap select-all">
-                            {item.text || item.description}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {(item.text || item.description) && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyText(idx, item.text || item.description || '')}
+                                  className="p-1 text-neutral-500 hover:text-neutral-900 text-xs font-medium flex items-center gap-1 cursor-pointer"
+                                >
+                                  {copiedTextIdx === idx ? (
+                                    <span className="text-emerald-600 font-semibold">Copied!</span>
+                                  ) : (
+                                    <Copy className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedFileIdx(isExpanded ? null : idx)}
+                                  className="p-1 text-neutral-500 hover:text-neutral-900 text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                                >
+                                  <span>{isExpanded ? 'Hide Text' : 'View Text'}</span>
+                                  {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
+
+                        {isExpanded && (item.text || item.description) && (
+                          <div className="p-4 bg-white border-t border-neutral-200 space-y-2">
+                            <div className="p-3 bg-neutral-50 rounded border border-neutral-200 max-h-56 overflow-y-auto font-mono text-xs text-neutral-800 leading-relaxed whitespace-pre-wrap select-all">
+                              {item.text || item.description}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* B. Duplicate Skipped Records */}
           {((batchResult.duplicate_job_descriptions && batchResult.duplicate_job_descriptions.length > 0) ||
             (batchResult.duplicate_records && batchResult.duplicate_records.length > 0)) && (
-            <div className="bg-white rounded-xl border border-amber-200 p-5 shadow-xs space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-amber-800 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                  <span>
-                    Duplicate Records Skipped (
-                    {(batchResult.duplicate_job_descriptions || batchResult.duplicate_records || []).length}
-                    )
+              <div className="bg-white rounded-xl border border-amber-200 p-5 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-800 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                    <span>
+                      Duplicate Records Skipped (
+                      {(batchResult.duplicate_job_descriptions || batchResult.duplicate_records || []).length}
+                      )
+                    </span>
                   </span>
-                </span>
-                <span className="text-[11px] text-amber-600 font-medium">Already exists in Supabase</span>
-              </div>
-              <div className="space-y-2">
-                {(batchResult.duplicate_job_descriptions || batchResult.duplicate_records || []).map((item, idx) => (
-                  <div key={`dup-${item.file_name}-${idx}`} className="border border-amber-200 rounded-lg p-3.5 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
-                      <span className="font-semibold text-neutral-900 truncate max-w-xs sm:max-w-md">
-                        {item.job_title || item.file_name}
-                      </span>
-                      {item.job_code && item.job_code !== 'N/A' && (
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold shrink-0">
-                          {item.job_code}
+                  <span className="text-[11px] text-amber-600 font-medium">Already exists in Supabase</span>
+                </div>
+                <div className="space-y-2">
+                  {(batchResult.duplicate_job_descriptions || batchResult.duplicate_records || []).map((item, idx) => (
+                    <div key={`dup-${item.file_name}-${idx}`} className="border border-amber-200 rounded-lg p-3.5 bg-amber-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                        <span className="font-semibold text-neutral-900 truncate max-w-xs sm:max-w-md">
+                          {item.job_title || item.file_name}
                         </span>
-                      )}
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 shrink-0">
-                        Duplicate Skipped
+                        {item.job_code && item.job_code !== 'N/A' && (
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold shrink-0">
+                            {item.job_code}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 shrink-0">
+                          Duplicate Skipped
+                        </span>
+                      </div>
+                      <span className="text-xs text-amber-700 italic shrink-0">
+                        {item.reason || 'Record already present in Supabase.'}
                       </span>
                     </div>
-                    <span className="text-xs text-amber-700 italic shrink-0">
-                      {item.reason || 'Record already present in Supabase.'}
-                    </span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* C. Failed Records */}
           {((batchResult.failed_job_descriptions && batchResult.failed_job_descriptions.length > 0) ||
             (batchResult.failed_records && batchResult.failed_records.length > 0)) && (
-            <div className="bg-white rounded-xl border border-red-200 p-5 shadow-xs space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-red-800 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                  <span>
-                    Failed Records (
-                    {(batchResult.failed_job_descriptions || batchResult.failed_records || []).length}
-                    )
+              <div className="bg-white rounded-xl border border-red-200 p-5 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-red-800 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                    <span>
+                      Failed Records (
+                      {(batchResult.failed_job_descriptions || batchResult.failed_records || []).length}
+                      )
+                    </span>
                   </span>
-                </span>
-                <span className="text-[11px] text-red-600 font-medium">Action required</span>
-              </div>
-              <div className="space-y-2">
-                {(batchResult.failed_job_descriptions || batchResult.failed_records || []).map((item, idx) => (
-                  <div key={`failed-${item.file_name}-${idx}`} className="border border-red-200 rounded-lg p-3.5 bg-red-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
-                      <span className="font-semibold text-neutral-900 truncate max-w-xs sm:max-w-md">
-                        {item.file_name || 'Job Description Document'}
-                      </span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 shrink-0">
-                        Failed
+                  <span className="text-[11px] text-red-600 font-medium">Action required</span>
+                </div>
+                <div className="space-y-2">
+                  {(batchResult.failed_job_descriptions || batchResult.failed_records || []).map((item, idx) => (
+                    <div key={`failed-${item.file_name}-${idx}`} className="border border-red-200 rounded-lg p-3.5 bg-red-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+                        <span className="font-semibold text-neutral-900 truncate max-w-xs sm:max-w-md">
+                          {item.file_name || 'Job Description Document'}
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-red-100 text-red-800 border border-red-300 shrink-0">
+                          Failed
+                        </span>
+                      </div>
+                      <span className="text-xs text-red-700 font-medium shrink-0">
+                        {item.error || 'Failed to process document.'}
                       </span>
                     </div>
-                    <span className="text-xs text-red-700 font-medium shrink-0">
-                      {item.error || 'Failed to process document.'}
-                    </span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* 3. Action Footer / Directory Link */}
           {batchResult.inserted_count > 0 && (
